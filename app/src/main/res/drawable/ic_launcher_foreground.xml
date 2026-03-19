@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Kruh ciferníku -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,18 A36,36 0 1,1 53.999,18 Z" />
+
+    <!-- Vnitřek ciferníku (tmavý) -->
+    <path
+        android:fillColor="#1A1A2E"
+        android:pathData="M54,21 A33,33 0 1,1 53.999,21 Z" />
+
+    <!-- Hodinové rysky -->
+    <path android:fillColor="#FFFFFF" android:pathData="M54,23 L54,27" android:strokeWidth="2" android:strokeColor="#FFFFFF"/>
+    <path android:fillColor="#FFFFFF" android:pathData="M54,79 L54,83" android:strokeWidth="2" android:strokeColor="#FFFFFF"/>
+    <path android:fillColor="#FFFFFF" android:pathData="M22,53 L26,53" android:strokeWidth="2" android:strokeColor="#FFFFFF"/>
+    <path android:fillColor="#FFFFFF" android:pathData="M82,53 L86,53" android:strokeWidth="2" android:strokeColor="#FFFFFF"/>
+
+    <!-- Minuta ručička – ukazuje na 12 -->
+    <path
+        android:strokeColor="#4FC3F7"
+        android:strokeWidth="2.5"
+        android:strokeLineCap="round"
+        android:pathData="M54,53 L54,30" />
+
+    <!-- Hodinová ručička – ukazuje na 5 (= 17:00, konec práce) -->
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="3"
+        android:strokeLineCap="round"
+        android:pathData="M54,53 L70,67" />
+
+    <!-- Středový bod -->
+    <path
+        android:fillColor="#4FC3F7"
+        android:pathData="M54,50 A3,3 0 1,1 53.999,50 Z" />
+
+    <!-- Zelená fajfka nahoře vpravo – přítomnost -->
+    <path
+        android:strokeColor="#4CAF50"
+        android:strokeWidth="3"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M76,26 L80,31 L88,20" />
+
+</vector>
