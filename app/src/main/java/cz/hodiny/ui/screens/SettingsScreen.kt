@@ -2,9 +2,7 @@ package cz.hodiny.ui.screens
 
 import android.Manifest
 import android.annotation.SuppressLint
-import android.net.ConnectivityManager
-import android.net.wifi.WifiInfo
-import android.os.Build
+import android.content.Context
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
@@ -45,6 +43,7 @@ fun SettingsScreen(padding: PaddingValues) {
     var detectionMode by remember(currentSettings) { mutableStateOf(currentSettings?.detectionMode ?: "both") }
     var isLocating by remember { mutableStateOf(false) }
     var saved by remember { mutableStateOf(false) }
+    var ssidError by remember { mutableStateOf("") }
     var googleEmail by remember { mutableStateOf(GoogleManager.getEmail(context)) }
 
     val locationLauncher = rememberLauncherForActivityResult(
@@ -103,9 +102,21 @@ fun SettingsScreen(padding: PaddingValues) {
                 modifier = Modifier.weight(1f)
             )
             OutlinedButton(
-                onClick = { ssid = getCurrentSsid(context) },
+                onClick = {
+                    ssidError = ""
+                    val detected = getCurrentSsid(context)
+                    if (detected.isNotBlank()) {
+                        ssid = detected
+                    } else {
+                        ssidError = "SSID nelze načíst – povolte přístup k poloze"
+                    }
+                },
                 modifier = Modifier.padding(top = 8.dp)
             ) { Text("Aktuální") }
+        }
+        if (ssidError.isNotBlank()) {
+            Text(ssidError, color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall)
         }
 
         SectionTitle("Režim detekce")
@@ -171,15 +182,9 @@ fun SettingsScreen(padding: PaddingValues) {
 @SuppressLint("MissingPermission")
 private fun getCurrentSsid(context: Context): String {
     return try {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            val cm = context.getSystemService(ConnectivityManager::class.java)
-            val caps = cm.getNetworkCapabilities(cm.activeNetwork)
-            val info = caps?.transportInfo as? WifiInfo
-            info?.ssid?.removeSurrounding("\"") ?: ""
-        } else {
-            @Suppress("DEPRECATION")
-            val wm = context.getSystemService(android.net.wifi.WifiManager::class.java)
-            wm.connectionInfo?.ssid?.removeSurrounding("\"") ?: ""
-        }
+        @Suppress("DEPRECATION")
+        val wm = context.applicationContext.getSystemService(android.net.wifi.WifiManager::class.java)
+        val raw = wm?.connectionInfo?.ssid?.removeSurrounding("\"") ?: ""
+        if (raw == "<unknown ssid>" || raw.isBlank()) "" else raw
     } catch (_: Exception) { "" }
 }

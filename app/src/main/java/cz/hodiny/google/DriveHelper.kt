@@ -1,8 +1,8 @@
 package cz.hodiny.google
 
 import android.content.Context
-import com.google.api.client.extensions.android.http.AndroidHttp
 import com.google.api.client.http.FileContent
+import com.google.api.client.http.javanet.NetHttpTransport
 import com.google.api.client.json.gson.GsonFactory
 import com.google.api.services.drive.Drive
 import com.google.api.services.drive.model.File as DriveFile
@@ -34,7 +34,7 @@ object DriveHelper {
         val csvFile = buildCsvFile(context, year, month, records, settings)
 
         return withContext(Dispatchers.IO) {
-            val transport = AndroidHttp.newCompatibleTransport()
+            val transport = NetHttpTransport()
             val jsonFactory = GsonFactory.getDefaultInstance()
             val service = Drive.Builder(transport, jsonFactory, credential)
                 .setApplicationName("Hodiny")

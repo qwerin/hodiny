@@ -1,7 +1,7 @@
 package cz.hodiny.google
 
 import android.content.Context
-import com.google.api.client.extensions.android.http.AndroidHttp
+import com.google.api.client.http.javanet.NetHttpTransport
 import com.google.api.client.json.gson.GsonFactory
 import com.google.api.services.sheets.v4.Sheets
 import com.google.api.services.sheets.v4.model.AutoResizeDimensionsRequest
@@ -42,9 +42,7 @@ object SheetsHelper {
             .replaceFirstChar { it.uppercase() }
 
         return withContext(Dispatchers.IO) {
-            val transport = AndroidHttp.newCompatibleTransport()
-            val jsonFactory = GsonFactory.getDefaultInstance()
-            val service = Sheets.Builder(transport, jsonFactory, credential)
+            val service = Sheets.Builder(NetHttpTransport(), GsonFactory.getDefaultInstance(), credential)
                 .setApplicationName("Hodiny")
                 .build()
 
@@ -53,7 +51,7 @@ object SheetsHelper {
                 properties = SpreadsheetProperties().apply { title = "Hodiny – $monthName $year" }
             }
             val created = service.spreadsheets().create(spreadsheet).execute()
-            val sheetId = created.spreadsheetId
+            val spreadsheetId = created.spreadsheetId
 
             // Sestavení dat
             val rows = mutableListOf<List<Any>>()
@@ -79,19 +77,21 @@ object SheetsHelper {
                 rows.add(listOf("K fakturaci (Kč)", "%.2f".format(totalMinutes / 60.0 * settings.hourlyRate)))
             }
 
-            // Zápis dat
             service.spreadsheets().values()
-                .update(sheetId, "A1", ValueRange().apply { setValues(rows) })
+                .update(spreadsheetId, "A1", ValueRange().apply { setValues(rows) })
                 .setValueInputOption("RAW")
                 .execute()
 
             // Formátování hlavičky
             val darkBlue = SheetColor().apply { red = 0.1f; green = 0.1f; blue = 0.18f }
             val white = SheetColor().apply { red = 1f; green = 1f; blue = 1f }
+            val firstSheetId = 0
             val requests = listOf(
                 Request().apply {
                     repeatCell = RepeatCellRequest().apply {
-                        range = GridRange().apply { sheetId = 0; startRowIndex = 0; endRowIndex = 1 }
+                        range = GridRange().apply {
+                            sheetId = firstSheetId; startRowIndex = 0; endRowIndex = 1
+                        }
                         cell = CellData().apply {
                             userEnteredFormat = CellFormat().apply {
                                 backgroundColor = darkBlue
@@ -104,17 +104,17 @@ object SheetsHelper {
                 Request().apply {
                     autoResizeDimensions = AutoResizeDimensionsRequest().apply {
                         dimensions = DimensionRange().apply {
-                            sheetId = 0; dimension = "COLUMNS"; startIndex = 0; endIndex = 6
+                            sheetId = firstSheetId; dimension = "COLUMNS"; startIndex = 0; endIndex = 6
                         }
                     }
                 }
             )
             service.spreadsheets().batchUpdate(
-                sheetId,
+                spreadsheetId,
                 BatchUpdateSpreadsheetRequest().apply { this.requests = requests }
             ).execute()
 
-            "https://docs.google.com/spreadsheets/d/$sheetId"
+            "https://docs.google.com/spreadsheets/d/$spreadsheetId"
         }
     }
 
