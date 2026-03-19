@@ -1,0 +1,2 @@
+-keep class cz.hodiny.** { *; }
+-keepclassmembers class * extends androidx.room.RoomDatabase { *; }
