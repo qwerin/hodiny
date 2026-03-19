@@ -1,6 +1,10 @@
 package cz.hodiny.ui.screens
 
 import android.Manifest
+import android.annotation.SuppressLint
+import android.net.ConnectivityManager
+import android.net.wifi.WifiInfo
+import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
@@ -16,12 +20,14 @@ import androidx.compose.ui.unit.dp
 import com.google.android.gms.location.LocationServices
 import cz.hodiny.HodinyApp
 import cz.hodiny.data.preferences.AppSettings
+import cz.hodiny.google.GoogleManager
 import cz.hodiny.ui.components.SectionTitle
 import cz.hodiny.service.GeofenceManager
 import cz.hodiny.worker.DepartureNotificationWorker
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 
+@SuppressLint("MissingPermission")
 @Composable
 fun SettingsScreen(padding: PaddingValues) {
     val context = LocalContext.current
@@ -39,6 +45,7 @@ fun SettingsScreen(padding: PaddingValues) {
     var detectionMode by remember(currentSettings) { mutableStateOf(currentSettings?.detectionMode ?: "both") }
     var isLocating by remember { mutableStateOf(false) }
     var saved by remember { mutableStateOf(false) }
+    var googleEmail by remember { mutableStateOf(GoogleManager.getEmail(context)) }
 
     val locationLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -51,6 +58,18 @@ fun SettingsScreen(padding: PaddingValues) {
                     if (loc != null) { gpsLat = loc.latitude; gpsLng = loc.longitude }
                 } finally { isLocating = false }
             }
+        }
+    }
+
+    val googleSignInLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        scope.launch {
+            try {
+                val task = com.google.android.gms.auth.api.signin.GoogleSignIn.getSignedInAccountFromIntent(result.data)
+                val account = task.await()
+                googleEmail = account.email
+            } catch (_: Exception) { }
         }
     }
 
@@ -77,7 +96,17 @@ fun SettingsScreen(padding: PaddingValues) {
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
 
         SectionTitle("WiFi detekce")
-        OutlinedTextField(value = ssid, onValueChange = { ssid = it }, label = { Text("SSID pracovní WiFi") }, modifier = Modifier.fillMaxWidth())
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(
+                value = ssid, onValueChange = { ssid = it },
+                label = { Text("SSID pracovní WiFi") },
+                modifier = Modifier.weight(1f)
+            )
+            OutlinedButton(
+                onClick = { ssid = getCurrentSsid(context) },
+                modifier = Modifier.padding(top = 8.dp)
+            ) { Text("Aktuální") }
+        }
 
         SectionTitle("Režim detekce")
         listOf("both" to "GPS + WiFi", "gps" to "Pouze GPS", "wifi" to "Pouze WiFi").forEach { (mode, label) ->
@@ -89,6 +118,26 @@ fun SettingsScreen(padding: PaddingValues) {
 
         SectionTitle("Notifikace")
         OutlinedTextField(value = notifTime, onValueChange = { notifTime = it }, label = { Text("Čas připomenutí (HH:MM)") }, modifier = Modifier.fillMaxWidth())
+
+        SectionTitle("Google účet")
+        if (googleEmail != null) {
+            Text(googleEmail!!, style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(
+                onClick = { scope.launch { GoogleManager.signOut(context); googleEmail = null } },
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("Odhlásit se z Google") }
+        } else {
+            Text("Přihlášení umožňuje export do Google Sheets a zálohu na Drive.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.height(8.dp))
+            Button(
+                onClick = { googleSignInLauncher.launch(GoogleManager.getSignInClient(context).signInIntent) },
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("Přihlásit se přes Google") }
+        }
 
         Spacer(Modifier.height(28.dp))
 
@@ -117,4 +166,20 @@ fun SettingsScreen(padding: PaddingValues) {
             Text("Nastavení uloženo ✓", color = MaterialTheme.colorScheme.secondary)
         }
     }
+}
+
+@SuppressLint("MissingPermission")
+private fun getCurrentSsid(context: Context): String {
+    return try {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val cm = context.getSystemService(ConnectivityManager::class.java)
+            val caps = cm.getNetworkCapabilities(cm.activeNetwork)
+            val info = caps?.transportInfo as? WifiInfo
+            info?.ssid?.removeSurrounding("\"") ?: ""
+        } else {
+            @Suppress("DEPRECATION")
+            val wm = context.getSystemService(android.net.wifi.WifiManager::class.java)
+            wm.connectionInfo?.ssid?.removeSurrounding("\"") ?: ""
+        }
+    } catch (_: Exception) { "" }
 }

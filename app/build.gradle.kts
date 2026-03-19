@@ -36,6 +36,19 @@ android {
     buildFeatures {
         compose = true
     }
+
+    packaging {
+        resources {
+            excludes += setOf(
+                "META-INF/DEPENDENCIES",
+                "META-INF/LICENSE",
+                "META-INF/LICENSE.txt",
+                "META-INF/NOTICE",
+                "META-INF/NOTICE.txt",
+                "META-INF/INDEX.LIST"
+            )
+        }
+    }
 }
 
 dependencies {
@@ -60,6 +73,11 @@ dependencies {
     implementation(libs.androidx.datastore)
     implementation(libs.androidx.work.runtime)
     implementation(libs.play.services.location)
+    implementation(libs.play.services.auth)
+    implementation(libs.google.api.client.android) { exclude(group = "org.apache.httpcomponents") }
+    implementation(libs.google.api.services.sheets) { exclude(group = "org.apache.httpcomponents") }
+    implementation(libs.google.api.services.drive) { exclude(group = "org.apache.httpcomponents") }
+    implementation(libs.google.http.client.gson)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlinx.coroutines.play.services)
 

@@ -12,6 +12,11 @@ datastore = "1.1.1"
 workManager = "2.9.1"
 playServicesLocation = "21.3.0"
 coroutines = "1.8.1"
+googleAuth = "21.2.0"
+googleApiClient = "2.2.0"
+googleSheetsApi = "v4-rev20240514-2.0.0"
+googleDriveApi = "v3-rev20240521-2.0.0"
+googleHttpClient = "1.44.1"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -32,6 +37,11 @@ androidx-room-compiler = { group = "androidx.room", name = "room-compiler", vers
 androidx-datastore = { group = "androidx.datastore", name = "datastore-preferences", version.ref = "datastore" }
 androidx-work-runtime = { group = "androidx.work", name = "work-runtime-ktx", version.ref = "workManager" }
 play-services-location = { group = "com.google.android.gms", name = "play-services-location", version.ref = "playServicesLocation" }
+play-services-auth = { group = "com.google.android.gms", name = "play-services-auth", version.ref = "googleAuth" }
+google-api-client-android = { group = "com.google.api-client", name = "google-api-client-android", version.ref = "googleApiClient" }
+google-api-services-sheets = { group = "com.google.apis", name = "google-api-services-sheets", version.ref = "googleSheetsApi" }
+google-api-services-drive = { group = "com.google.apis", name = "google-api-services-drive", version.ref = "googleDriveApi" }
+google-http-client-gson = { group = "com.google.http-client", name = "google-http-client-gson", version.ref = "googleHttpClient" }
 kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
 kotlinx-coroutines-play-services = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-play-services", version.ref = "coroutines" }
 
