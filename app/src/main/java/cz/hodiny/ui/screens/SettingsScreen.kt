@@ -3,6 +3,7 @@ package cz.hodiny.ui.screens
 import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Context
+import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
@@ -17,13 +18,17 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.google.android.gms.location.LocationServices
 import cz.hodiny.HodinyApp
+import cz.hodiny.MainActivity
+import cz.hodiny.data.db.HodinyDatabase
 import cz.hodiny.data.preferences.AppSettings
 import cz.hodiny.ui.components.SectionTitle
 import cz.hodiny.ui.components.TimePickerField
 import cz.hodiny.service.GeofenceManager
 import cz.hodiny.worker.DepartureNotificationWorker
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withContext
 
 @SuppressLint("MissingPermission")
 @Composable
@@ -42,9 +47,11 @@ fun SettingsScreen(padding: PaddingValues) {
     var gpsLat by remember(currentSettings) { mutableStateOf(currentSettings?.workLat ?: 0.0) }
     var gpsLng by remember(currentSettings) { mutableStateOf(currentSettings?.workLng ?: 0.0) }
     var detectionMode by remember(currentSettings) { mutableStateOf(currentSettings?.detectionMode ?: "both") }
+    var roundingMinutes by remember(currentSettings) { mutableStateOf(currentSettings?.roundingMinutes ?: 0) }
     var isLocating by remember { mutableStateOf(false) }
     var saved by remember { mutableStateOf(false) }
     var ssidError by remember { mutableStateOf("") }
+    var dbMessage by remember { mutableStateOf("") }
 
     val locationLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -57,6 +64,51 @@ fun SettingsScreen(padding: PaddingValues) {
                     if (loc != null) { gpsLat = loc.latitude; gpsLng = loc.longitude }
                 } finally { isLocating = false }
             }
+        }
+    }
+
+    val exportDbLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/octet-stream")
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            withContext(Dispatchers.IO) {
+                try {
+                    val dbFile = context.getDatabasePath("hodiny.db")
+                    context.contentResolver.openOutputStream(uri)?.use { out ->
+                        dbFile.inputStream().use { it.copyTo(out) }
+                    }
+                    dbMessage = "Export dokončen"
+                } catch (e: Exception) { dbMessage = "Chyba exportu: ${e.message}" }
+            }
+        }
+    }
+
+    val importDbLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            withContext(Dispatchers.IO) {
+                try {
+                    val dbFile = context.getDatabasePath("hodiny.db")
+                    HodinyDatabase.closeAndReset()
+                    context.contentResolver.openInputStream(uri)?.use { inp ->
+                        dbFile.outputStream().use { inp.copyTo(it) }
+                    }
+                    // smaž WAL a SHM soubory aby se DB otevřela čistě
+                    context.getDatabasePath("hodiny.db-wal").delete()
+                    context.getDatabasePath("hodiny.db-shm").delete()
+                } catch (e: Exception) {
+                    dbMessage = "Chyba importu: ${e.message}"
+                    return@withContext
+                }
+            }
+            // Restart aplikace
+            val intent = Intent(context, MainActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+            }
+            context.startActivity(intent)
         }
     }
 
@@ -124,6 +176,34 @@ fun SettingsScreen(padding: PaddingValues) {
             modifier = Modifier.fillMaxWidth()
         )
 
+        SectionTitle("Zaokrouhlení času")
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf(0 to "Žádné", 5 to "5 min", 10 to "10 min", 15 to "15 min", 30 to "30 min").forEach { (value, label) ->
+                FilterChip(
+                    selected = roundingMinutes == value,
+                    onClick = { roundingMinutes = value },
+                    label = { Text(label) }
+                )
+            }
+        }
+
+        SectionTitle("Záloha databáze")
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(
+                onClick = { exportDbLauncher.launch("hodiny_backup.db") },
+                modifier = Modifier.weight(1f)
+            ) { Text("Exportovat") }
+            OutlinedButton(
+                onClick = { importDbLauncher.launch(arrayOf("application/octet-stream", "*/*")) },
+                modifier = Modifier.weight(1f)
+            ) { Text("Importovat") }
+        }
+        if (dbMessage.isNotBlank()) {
+            Text(dbMessage, style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 4.dp))
+        }
+
         Spacer(Modifier.height(28.dp))
 
         Button(onClick = {
@@ -136,6 +216,7 @@ fun SettingsScreen(padding: PaddingValues) {
                     notificationTime = "%02d:%02d".format(notifHour, notifMinute),
                     userName = userName.trim(),
                     hourlyRate = hourlyRate.toDoubleOrNull() ?: 0.0,
+                    roundingMinutes = roundingMinutes,
                     isOnboarded = true
                 )
                 app.preferences.save(settings)

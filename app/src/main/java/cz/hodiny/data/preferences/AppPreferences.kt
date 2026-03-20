@@ -17,6 +17,7 @@ data class AppSettings(
     val notificationTime: String = "18:00",
     val userName: String = "",
     val hourlyRate: Double = 0.0,
+    val roundingMinutes: Int = 0,
     val isOnboarded: Boolean = false
 )
 
@@ -31,6 +32,7 @@ class AppPreferences(private val context: Context) {
         val NOTIFICATION_TIME = stringPreferencesKey("notification_time")
         val USER_NAME = stringPreferencesKey("user_name")
         val HOURLY_RATE = doublePreferencesKey("hourly_rate")
+        val ROUNDING_MINUTES = intPreferencesKey("rounding_minutes")
         val IS_ONBOARDED = booleanPreferencesKey("is_onboarded")
     }
 
@@ -44,6 +46,7 @@ class AppPreferences(private val context: Context) {
             notificationTime = prefs[Keys.NOTIFICATION_TIME] ?: "18:00",
             userName = prefs[Keys.USER_NAME] ?: "",
             hourlyRate = prefs[Keys.HOURLY_RATE] ?: 0.0,
+            roundingMinutes = prefs[Keys.ROUNDING_MINUTES] ?: 0,
             isOnboarded = prefs[Keys.IS_ONBOARDED] ?: false
         )
     }
@@ -58,6 +61,7 @@ class AppPreferences(private val context: Context) {
             prefs[Keys.NOTIFICATION_TIME] = settings.notificationTime
             prefs[Keys.USER_NAME] = settings.userName
             prefs[Keys.HOURLY_RATE] = settings.hourlyRate
+            prefs[Keys.ROUNDING_MINUTES] = settings.roundingMinutes
             prefs[Keys.IS_ONBOARDED] = settings.isOnboarded
         }
     }

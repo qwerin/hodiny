@@ -45,6 +45,8 @@ fun HistoryScreen(padding: PaddingValues) {
     val context = LocalContext.current
     val app = context.applicationContext as HodinyApp
     val allRecords by app.repository.observeAll().collectAsState(initial = emptyList())
+    val settings by app.preferences.settings.collectAsState(initial = null)
+    val hourlyRate = settings?.hourlyRate ?: 0.0
     var editRecord by remember { mutableStateOf<AttendanceRecord?>(null) }
     var deleteRecord by remember { mutableStateOf<AttendanceRecord?>(null) }
     var showAddDialog by remember { mutableStateOf(false) }
@@ -90,6 +92,7 @@ fun HistoryScreen(padding: PaddingValues) {
                 val prefix = "%04d-%02d".format(y, m)
                 val monthRecords = allRecords.filter { it.date.startsWith(prefix) }
                 val totalMinutes = monthRecords.sumOf { durationMinutes(it) }
+                val totalAmount = if (hourlyRate > 0) totalMinutes / 60.0 * hourlyRate else 0.0
 
                 LazyColumn(modifier = Modifier.fillMaxSize()) {
                     // Součet měsíce
@@ -97,9 +100,17 @@ fun HistoryScreen(padding: PaddingValues) {
                         Surface(color = Color(0xFFE3F2FD), modifier = Modifier.fillMaxWidth()) {
                             Row(
                                 Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text("${monthRecords.size} dní", color = Color(0xFF1565C0))
+                                if (hourlyRate > 0) {
+                                    Text(
+                                        "${"%.0f".format(totalAmount)} Kč",
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF1565C0)
+                                    )
+                                }
                                 Text(formatMinutes(totalMinutes), fontWeight = FontWeight.Bold, color = Color(0xFF1565C0))
                             }
                         }
@@ -114,6 +125,8 @@ fun HistoryScreen(padding: PaddingValues) {
                     }
 
                     items(monthRecords.sortedByDescending { it.date }, key = { it.id }) { record ->
+                        val dayMinutes = durationMinutes(record)
+                        val dayAmount = if (hourlyRate > 0 && dayMinutes > 0) dayMinutes / 60.0 * hourlyRate else 0.0
                         ListItem(
                             modifier = Modifier.clickable { editRecord = record },
                             headlineContent = { Text(formatDateShort(record.date)) },
@@ -125,10 +138,17 @@ fun HistoryScreen(padding: PaddingValues) {
                                     Column(horizontalAlignment = Alignment.End) {
                                         Text("${formatTime(record.arrivalTime)} – ${formatTime(record.departureTime)}")
                                         Text(
-                                            formatMinutes(durationMinutes(record)),
+                                            formatMinutes(dayMinutes),
                                             style = MaterialTheme.typography.bodySmall,
                                             color = Color(0xFF666666)
                                         )
+                                        if (dayAmount > 0) {
+                                            Text(
+                                                "${"%.0f".format(dayAmount)} Kč",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = Color(0xFF388E3C)
+                                            )
+                                        }
                                     }
                                     IconButton(onClick = { deleteRecord = record }) {
                                         Icon(Icons.Default.Delete, null, tint = Color(0xFFBDBDBD))

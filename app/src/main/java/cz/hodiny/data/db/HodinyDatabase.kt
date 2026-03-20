@@ -25,5 +25,12 @@ abstract class HodinyDatabase : RoomDatabase() {
                     "hodiny.db"
                 ).build().also { instance = it }
             }
+
+        fun closeAndReset() {
+            synchronized(this) {
+                instance?.close()
+                instance = null
+            }
+        }
     }
 }
