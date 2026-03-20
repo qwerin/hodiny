@@ -18,8 +18,8 @@ import androidx.compose.ui.unit.dp
 import com.google.android.gms.location.LocationServices
 import cz.hodiny.HodinyApp
 import cz.hodiny.data.preferences.AppSettings
-import cz.hodiny.google.GoogleManager
 import cz.hodiny.ui.components.SectionTitle
+import cz.hodiny.ui.components.TimePickerField
 import cz.hodiny.service.GeofenceManager
 import cz.hodiny.worker.DepartureNotificationWorker
 import kotlinx.coroutines.launch
@@ -36,7 +36,8 @@ fun SettingsScreen(padding: PaddingValues) {
     var userName by remember(currentSettings) { mutableStateOf(currentSettings?.userName ?: "") }
     var ssid by remember(currentSettings) { mutableStateOf(currentSettings?.workSsid ?: "") }
     var radius by remember(currentSettings) { mutableStateOf(currentSettings?.workRadius?.toString() ?: "150") }
-    var notifTime by remember(currentSettings) { mutableStateOf(currentSettings?.notificationTime ?: "18:00") }
+    var notifHour by remember(currentSettings) { mutableStateOf(currentSettings?.notificationTime?.split(":")?.getOrNull(0)?.toIntOrNull() ?: 18) }
+    var notifMinute by remember(currentSettings) { mutableStateOf(currentSettings?.notificationTime?.split(":")?.getOrNull(1)?.toIntOrNull() ?: 0) }
     var hourlyRate by remember(currentSettings) { mutableStateOf(currentSettings?.hourlyRate?.let { if (it > 0) it.toString() else "" } ?: "") }
     var gpsLat by remember(currentSettings) { mutableStateOf(currentSettings?.workLat ?: 0.0) }
     var gpsLng by remember(currentSettings) { mutableStateOf(currentSettings?.workLng ?: 0.0) }
@@ -44,7 +45,6 @@ fun SettingsScreen(padding: PaddingValues) {
     var isLocating by remember { mutableStateOf(false) }
     var saved by remember { mutableStateOf(false) }
     var ssidError by remember { mutableStateOf("") }
-    var googleEmail by remember { mutableStateOf(GoogleManager.getEmail(context)) }
 
     val locationLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -57,18 +57,6 @@ fun SettingsScreen(padding: PaddingValues) {
                     if (loc != null) { gpsLat = loc.latitude; gpsLng = loc.longitude }
                 } finally { isLocating = false }
             }
-        }
-    }
-
-    val googleSignInLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) { result ->
-        scope.launch {
-            try {
-                val task = com.google.android.gms.auth.api.signin.GoogleSignIn.getSignedInAccountFromIntent(result.data)
-                val account = task.await()
-                googleEmail = account.email
-            } catch (_: Exception) { }
         }
     }
 
@@ -128,27 +116,13 @@ fun SettingsScreen(padding: PaddingValues) {
         }
 
         SectionTitle("Notifikace")
-        OutlinedTextField(value = notifTime, onValueChange = { notifTime = it }, label = { Text("Čas připomenutí (HH:MM)") }, modifier = Modifier.fillMaxWidth())
-
-        SectionTitle("Google účet")
-        if (googleEmail != null) {
-            Text(googleEmail!!, style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Spacer(Modifier.height(8.dp))
-            OutlinedButton(
-                onClick = { scope.launch { GoogleManager.signOut(context); googleEmail = null } },
-                modifier = Modifier.fillMaxWidth()
-            ) { Text("Odhlásit se z Google") }
-        } else {
-            Text("Přihlášení umožňuje export do Google Sheets a zálohu na Drive.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Spacer(Modifier.height(8.dp))
-            Button(
-                onClick = { googleSignInLauncher.launch(GoogleManager.getSignInClient(context).signInIntent) },
-                modifier = Modifier.fillMaxWidth()
-            ) { Text("Přihlásit se přes Google") }
-        }
+        TimePickerField(
+            label = "Čas připomenutí",
+            hour = notifHour,
+            minute = notifMinute,
+            onTimeSelected = { h, m -> notifHour = h; notifMinute = m },
+            modifier = Modifier.fillMaxWidth()
+        )
 
         Spacer(Modifier.height(28.dp))
 
@@ -159,7 +133,7 @@ fun SettingsScreen(padding: PaddingValues) {
                     workRadius = radius.toIntOrNull() ?: 150,
                     workSsid = ssid.trim(),
                     detectionMode = detectionMode,
-                    notificationTime = notifTime,
+                    notificationTime = "%02d:%02d".format(notifHour, notifMinute),
                     userName = userName.trim(),
                     hourlyRate = hourlyRate.toDoubleOrNull() ?: 0.0,
                     isOnboarded = true
@@ -167,7 +141,7 @@ fun SettingsScreen(padding: PaddingValues) {
                 app.preferences.save(settings)
                 GeofenceManager.stop(context)
                 GeofenceManager.start(context, settings)
-                DepartureNotificationWorker.schedule(context, notifTime)
+                DepartureNotificationWorker.schedule(context, "%02d:%02d".format(notifHour, notifMinute))
                 saved = true
             }
         }, modifier = Modifier.fillMaxWidth()) { Text("Uložit nastavení") }

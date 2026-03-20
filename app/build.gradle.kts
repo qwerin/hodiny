@@ -1,8 +1,15 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
+}
+
+val localProps = Properties().apply {
+    val f = rootProject.file("local.properties")
+    if (f.exists()) load(f.inputStream())
 }
 
 android {
@@ -17,8 +24,18 @@ android {
         versionName = "1.0"
     }
 
+    signingConfigs {
+        create("release") {
+            storeFile = file("../hodiny.keystore")
+            storePassword = localProps.getProperty("keystore.password")
+            keyAlias = localProps.getProperty("keystore.alias")
+            keyPassword = localProps.getProperty("keystore.aliasPassword")
+        }
+    }
+
     buildTypes {
         release {
+            signingConfig = signingConfigs.getByName("release")
             isMinifyEnabled = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
@@ -35,19 +52,6 @@ android {
 
     buildFeatures {
         compose = true
-    }
-
-    packaging {
-        resources {
-            excludes += setOf(
-                "META-INF/DEPENDENCIES",
-                "META-INF/LICENSE",
-                "META-INF/LICENSE.txt",
-                "META-INF/NOTICE",
-                "META-INF/NOTICE.txt",
-                "META-INF/INDEX.LIST"
-            )
-        }
     }
 }
 
@@ -73,11 +77,6 @@ dependencies {
     implementation(libs.androidx.datastore)
     implementation(libs.androidx.work.runtime)
     implementation(libs.play.services.location)
-    implementation(libs.play.services.auth)
-    implementation(libs.google.api.client.android) { exclude(group = "org.apache.httpcomponents") }
-    implementation(libs.google.api.services.sheets) { exclude(group = "org.apache.httpcomponents") }
-    implementation(libs.google.api.services.drive) { exclude(group = "org.apache.httpcomponents") }
-    implementation(libs.google.http.client.gson)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlinx.coroutines.play.services)
 

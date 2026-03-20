@@ -13,6 +13,7 @@ import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 @Composable
 fun EditEntryDialog(record: AttendanceRecord, onDismiss: () -> Unit, onSave: () -> Unit) {
@@ -28,7 +29,7 @@ fun EditEntryDialog(record: AttendanceRecord, onDismiss: () -> Unit, onSave: () 
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Upravit záznam – ${record.date}") },
+        title = { Text("Upravit záznam – ${LocalDate.parse(record.date).format(DateTimeFormatter.ofPattern("d. M. yyyy", Locale("cs")))}") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 TimePickerField(

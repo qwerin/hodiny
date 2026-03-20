@@ -15,6 +15,7 @@ import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -49,7 +50,7 @@ fun AddRecordDialog(onDismiss: () -> Unit, onSave: () -> Unit) {
                 ) {
                     Icon(Icons.Default.CalendarToday, null)
                     Spacer(Modifier.width(8.dp))
-                    Text("Datum: ${selectedDate}")
+                    Text("Datum: ${selectedDate.format(DateTimeFormatter.ofPattern("d. M. yyyy", Locale("cs")))}")
                 }
 
                 TimePickerField(
