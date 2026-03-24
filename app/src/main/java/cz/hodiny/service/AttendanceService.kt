@@ -33,6 +33,7 @@ suspend fun handleZoneEnter(context: Context, source: String) {
     DebugLogger.log(source, "enter zaznamenán")
 
     val app = context.applicationContext as HodinyApp
+    app.preferences.setInsideZone(true)
     val rounding = app.preferences.settings.first().roundingMinutes
     val timestamp = roundedNow(rounding).format(DateTimeFormatter.ISO_LOCAL_DATE_TIME)
     val (record, isNew) = app.repository.recordArrival(source, timestamp)
@@ -57,11 +58,17 @@ suspend fun handleZoneExit(context: Context, source: String) {
             return
         }
     }
+    val app = context.applicationContext as HodinyApp
+    if (!app.preferences.isInsideZone()) {
+        DebugLogger.log(source, "exit ignorován – nebyl předchozí enter (restart mimo zónu?)")
+        return
+    }
+
     lastExitMs = now
     lastExitSource = source
     DebugLogger.log(source, "exit zaznamenán")
 
-    val app = context.applicationContext as HodinyApp
+    app.preferences.setInsideZone(false)
     val rounding = app.preferences.settings.first().roundingMinutes
     val timestamp = roundedNow(rounding).format(DateTimeFormatter.ISO_LOCAL_DATE_TIME)
     app.repository.recordDeparture(source, timestamp)

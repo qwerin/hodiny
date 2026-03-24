@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.datastore.preferences.core.*
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
 private val Context.dataStore by preferencesDataStore("hodiny_settings")
@@ -34,6 +35,7 @@ class AppPreferences(private val context: Context) {
         val HOURLY_RATE = doublePreferencesKey("hourly_rate")
         val ROUNDING_MINUTES = intPreferencesKey("rounding_minutes")
         val IS_ONBOARDED = booleanPreferencesKey("is_onboarded")
+        val IS_INSIDE_ZONE = booleanPreferencesKey("is_inside_zone")
     }
 
     val settings: Flow<AppSettings> = context.dataStore.data.map { prefs ->
@@ -49,6 +51,13 @@ class AppPreferences(private val context: Context) {
             roundingMinutes = prefs[Keys.ROUNDING_MINUTES] ?: 0,
             isOnboarded = prefs[Keys.IS_ONBOARDED] ?: false
         )
+    }
+
+    suspend fun isInsideZone(): Boolean =
+        context.dataStore.data.map { it[Keys.IS_INSIDE_ZONE] ?: false }.first()
+
+    suspend fun setInsideZone(value: Boolean) {
+        context.dataStore.edit { it[Keys.IS_INSIDE_ZONE] = value }
     }
 
     suspend fun save(settings: AppSettings) {
