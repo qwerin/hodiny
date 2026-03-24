@@ -4,6 +4,7 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
+import android.location.Location
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
@@ -12,8 +13,10 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.google.android.gms.location.LocationServices
@@ -23,6 +26,7 @@ import cz.hodiny.data.db.HodinyDatabase
 import cz.hodiny.data.preferences.AppSettings
 import cz.hodiny.ui.components.SectionTitle
 import cz.hodiny.ui.components.TimePickerField
+import cz.hodiny.service.DebugLogger
 import cz.hodiny.service.GeofenceManager
 import cz.hodiny.worker.DepartureNotificationWorker
 import kotlinx.coroutines.Dispatchers
@@ -52,6 +56,31 @@ fun SettingsScreen(padding: PaddingValues) {
     var saved by remember { mutableStateOf(false) }
     var ssidError by remember { mutableStateOf("") }
     var dbMessage by remember { mutableStateOf("") }
+
+    // Stav detekce
+    var refreshKey by remember { mutableStateOf(0) }
+    var statusSsid by remember { mutableStateOf("") }
+    var statusDistance by remember { mutableStateOf<Float?>(null) }
+    val debugEntries by DebugLogger.entries.collectAsState()
+
+    LaunchedEffect(currentSettings?.workLat, currentSettings?.workLng, refreshKey) {
+        statusSsid = getCurrentSsid(context)
+        val settings = currentSettings ?: return@LaunchedEffect
+        if (settings.workLat == 0.0 && settings.workLng == 0.0) { statusDistance = null; return@LaunchedEffect }
+        try {
+            val loc = LocationServices.getFusedLocationProviderClient(context).lastLocation.await()
+            if (loc != null) {
+                val result = FloatArray(1)
+                Location.distanceBetween(loc.latitude, loc.longitude, settings.workLat, settings.workLng, result)
+                statusDistance = result[0]
+                DebugLogger.log("GPS", "poloha: ${"%.5f".format(loc.latitude)}, ${"%.5f".format(loc.longitude)} | vzdálenost od práce: ${"%.0f".format(result[0])} m (radius ${settings.workRadius} m)")
+            } else {
+                DebugLogger.log("GPS", "lastLocation=null (GPS fix nedostupný)")
+            }
+        } catch (e: Exception) {
+            DebugLogger.log("GPS", "chyba načítání polohy: ${e.message}")
+        }
+    }
 
     val locationLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -161,7 +190,7 @@ fun SettingsScreen(padding: PaddingValues) {
 
         SectionTitle("Režim detekce")
         listOf("both" to "GPS + WiFi", "gps" to "Pouze GPS", "wifi" to "Pouze WiFi").forEach { (mode, label) ->
-            Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 RadioButton(selected = detectionMode == mode, onClick = { detectionMode = mode })
                 Text(label, modifier = Modifier.padding(start = 4.dp))
             }
@@ -223,7 +252,11 @@ fun SettingsScreen(padding: PaddingValues) {
                 GeofenceManager.stop(context)
                 GeofenceManager.start(context, settings)
                 DepartureNotificationWorker.schedule(context, "%02d:%02d".format(notifHour, notifMinute))
+                context.startForegroundService(
+                    android.content.Intent(context, cz.hodiny.service.MonitoringService::class.java)
+                )
                 saved = true
+                refreshKey++
             }
         }, modifier = Modifier.fillMaxWidth()) { Text("Uložit nastavení") }
 
@@ -231,6 +264,107 @@ fun SettingsScreen(padding: PaddingValues) {
             Spacer(Modifier.height(8.dp))
             Text("Nastavení uloženo ✓", color = MaterialTheme.colorScheme.secondary)
         }
+
+        // --- Stav detekce ---
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("Stav detekce", style = MaterialTheme.typography.titleMedium)
+            OutlinedButton(onClick = { refreshKey++ }) { Text("Obnovit") }
+        }
+
+        val workSsid = currentSettings?.workSsid ?: ""
+        val ssidMatch = statusSsid.isNotBlank() && workSsid.isNotBlank() && statusSsid == workSsid
+        val ssidColor = if (ssidMatch) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+
+        Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text("WiFi", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Aktuální SSID: ${statusSsid.ifBlank { "—" }}")
+                Text("Pracovní SSID: ${workSsid.ifBlank { "—" }}")
+                Text(
+                    if (workSsid.isBlank()) "⚠ SSID není nastaveno"
+                    else if (statusSsid.isBlank()) "⚠ Nelze načíst aktuální SSID"
+                    else if (ssidMatch) "✓ Shoda – v pracovní síti"
+                    else "✗ Neshoda – mimo pracovní síť",
+                    color = ssidColor,
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            }
+        }
+
+        val workRadius = currentSettings?.workRadius ?: 150
+        val workLat = currentSettings?.workLat ?: 0.0
+        val workLng = currentSettings?.workLng ?: 0.0
+        val isInZone = statusDistance?.let { it <= workRadius }
+        val gpsColor = if (isInZone == true) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+
+        Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text("GPS", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                when {
+                    workLat == 0.0 && workLng == 0.0 -> Text("⚠ GPS poloha pracoviště není nastavena")
+                    statusDistance == null -> Text("Zjišťuji polohu...", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    else -> {
+                        Text("Vzdálenost: ${"%.0f".format(statusDistance)} m (radius: $workRadius m)")
+                        Text(
+                            if (isInZone == true) "✓ V zóně" else "✗ Mimo zónu (${"%.0f".format(statusDistance!! - workRadius)} m navíc)",
+                            color = gpsColor,
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
+                }
+            }
+        }
+
+        // --- Debug log ---
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("Debug log", style = MaterialTheme.typography.titleMedium)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = {
+                    val text = debugEntries.joinToString("\n")
+                    val shareIntent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        putExtra(android.content.Intent.EXTRA_TEXT, text)
+                    }
+                    context.startActivity(android.content.Intent.createChooser(shareIntent, "Sdílet log"))
+                }) { Text("Sdílet") }
+                OutlinedButton(onClick = { DebugLogger.clear() }) { Text("Smazat") }
+            }
+        }
+
+        if (debugEntries.isEmpty()) {
+            Text(
+                "Žádné záznamy",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(vertical = 4.dp)
+            )
+        } else {
+            Surface(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                shape = MaterialTheme.shapes.small
+            ) {
+                Column(Modifier.padding(8.dp)) {
+                    debugEntries.take(100).forEach { entry ->
+                        Text(
+                            entry,
+                            style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                            modifier = Modifier.padding(vertical = 1.dp)
+                        )
+                    }
+                }
+            }
+        }
+
+        Spacer(Modifier.height(16.dp))
     }
 }
 

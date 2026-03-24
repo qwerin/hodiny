@@ -10,33 +10,62 @@ import java.time.format.DateTimeFormatter
 private const val DEBOUNCE_MS = 2 * 60 * 1000L
 
 private var lastEnterMs = 0L
+private var lastEnterSource = ""
 private var lastExitMs = 0L
+private var lastExitSource = ""
 
+// Pro příchod má prioritu GPS – pokud GPS přijde po WiFi, přepíše ho
+// Pro odchod má prioritu WiFi/SSID – pokud WiFi přijde po GPS, přepíše ho
 suspend fun handleZoneEnter(context: Context, source: String) {
     val now = System.currentTimeMillis()
-    if (now - lastEnterMs < DEBOUNCE_MS) return
+    val elapsed = now - lastEnterMs
+    if (elapsed < DEBOUNCE_MS) {
+        if (source == "gps" && lastEnterSource == "wifi") {
+            DebugLogger.log(source, "GPS přebíjí WiFi enter (priorita GPS pro příchod)")
+            // Pokračujeme – GPS přepíše WiFi záznam
+        } else {
+            DebugLogger.log(source, "enter ignorován (debounce, zbývá ${(DEBOUNCE_MS - elapsed) / 1000}s, zdroj=$lastEnterSource)")
+            return
+        }
+    }
     lastEnterMs = now
+    lastEnterSource = source
+    DebugLogger.log(source, "enter zaznamenán")
 
     val app = context.applicationContext as HodinyApp
     val rounding = app.preferences.settings.first().roundingMinutes
     val timestamp = roundedNow(rounding).format(DateTimeFormatter.ISO_LOCAL_DATE_TIME)
-    val record = app.repository.recordArrival(source, timestamp)
+    val (record, isNew) = app.repository.recordArrival(source, timestamp)
 
-    // Pošli notifikaci o příchodu jen pokud jsme právě zapsali příchod
-    if (record.arrivalTime != null) {
+    if (isNew && record.arrivalTime != null) {
+        DebugLogger.log(source, "příchod uložen: ${record.arrivalTime}")
         NotificationHelper.sendArrivalNotification(context, record.id, record.arrivalTime)
+    } else {
+        DebugLogger.log(source, "příchod dnes již existuje, přeskočen (isNew=$isNew)")
     }
 }
 
 suspend fun handleZoneExit(context: Context, source: String) {
     val now = System.currentTimeMillis()
-    if (now - lastExitMs < DEBOUNCE_MS) return
+    val elapsed = now - lastExitMs
+    if (elapsed < DEBOUNCE_MS) {
+        if (source == "wifi" && lastExitSource == "gps") {
+            DebugLogger.log(source, "WiFi přebíjí GPS exit (priorita WiFi pro odchod)")
+            // Pokračujeme – WiFi přepíše GPS záznam
+        } else {
+            DebugLogger.log(source, "exit ignorován (debounce, zbývá ${(DEBOUNCE_MS - elapsed) / 1000}s, zdroj=$lastExitSource)")
+            return
+        }
+    }
     lastExitMs = now
+    lastExitSource = source
+    DebugLogger.log(source, "exit zaznamenán")
 
     val app = context.applicationContext as HodinyApp
     val rounding = app.preferences.settings.first().roundingMinutes
     val timestamp = roundedNow(rounding).format(DateTimeFormatter.ISO_LOCAL_DATE_TIME)
     app.repository.recordDeparture(source, timestamp)
+    DebugLogger.log(source, "odchod uložen: $timestamp")
 }
 
 private fun roundedNow(minutes: Int): LocalDateTime {

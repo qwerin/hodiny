@@ -33,6 +33,7 @@ class MonitoringService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        DebugLogger.log("MonitoringService", "onCreate – service spuštěn")
         startForegroundSilent()
         connectivityManager = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
 
@@ -57,21 +58,29 @@ class MonitoringService : Service() {
         scope.launch {
             val app = applicationContext as HodinyApp
             val settings = app.preferences.settings.first()
-            if (settings.workSsid.isBlank() || settings.detectionMode == "gps") return@launch
+            if (settings.workSsid.isBlank() || settings.detectionMode == "gps") {
+                DebugLogger.log("MonitoringService", "WiFi kontrola přeskočena (mode=${settings.detectionMode}, ssid=${settings.workSsid.ifBlank { "prázdné" }})")
+                return@launch
+            }
 
             val wifiManager = applicationContext.getSystemService(WIFI_SERVICE) as WifiManager
-            val currentSsid = wifiManager.connectionInfo.ssid?.removeSurrounding("\"") ?: ""
-            val isOnWorkWifi = currentSsid == settings.workSsid
+            val rawSsid = wifiManager.connectionInfo.ssid?.removeSurrounding("\"") ?: ""
+            val currentSsid = if (rawSsid == "<unknown ssid>") "" else rawSsid
+            val isOnWorkWifi = currentSsid.isNotBlank() && currentSsid == settings.workSsid
+            DebugLogger.log("MonitoringService", "SSID='$currentSsid' vs '${settings.workSsid}' → shoda=$isOnWorkWifi, lastSsid='$lastSsid'")
 
             when {
                 isOnWorkWifi && lastSsid != settings.workSsid -> {
+                    DebugLogger.log("MonitoringService", "→ enter")
                     lastSsid = settings.workSsid
                     handleZoneEnter(applicationContext, "wifi")
                 }
                 !isOnWorkWifi && lastSsid == settings.workSsid -> {
+                    DebugLogger.log("MonitoringService", "→ exit")
                     lastSsid = ""
                     handleZoneExit(applicationContext, "wifi")
                 }
+                else -> DebugLogger.log("MonitoringService", "→ žádná změna")
             }
         }
     }
@@ -83,6 +92,7 @@ class MonitoringService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        DebugLogger.log("MonitoringService", "onDestroy – service zastaven!")
         connectivityManager.unregisterNetworkCallback(networkCallback)
     }
 }
