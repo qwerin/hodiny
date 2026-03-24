@@ -16,3 +16,7 @@ app/release/
 
 # Firebase
 app/google-services.json
+
+# Deployment
+deploy.sh
+release-notes.txt
