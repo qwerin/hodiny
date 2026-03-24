@@ -13,3 +13,6 @@ app/release/
 *.apk
 *.aab
 *.keystore
+
+# Firebase
+app/google-services.json
