@@ -22,6 +22,17 @@ data class AppSettings(
     val isOnboarded: Boolean = false
 )
 
+// Napojení na NanoFakturu – ukládá se zvlášť, aby ho neresetovalo uložení AppSettings
+data class NanoFakturaConfig(
+    val url: String = DEFAULT_NANOFAKTURA_URL,
+    val token: String = "",
+    val accountSlug: String = "",
+    val subjectId: Long = 0,
+    val draft: Boolean = true
+)
+
+const val DEFAULT_NANOFAKTURA_URL = "https://nanofaktura.cz/"
+
 class AppPreferences(private val context: Context) {
 
     private object Keys {
@@ -41,6 +52,11 @@ class AppPreferences(private val context: Context) {
         val LAST_ENTER_SOURCE = stringPreferencesKey("last_enter_source")
         val LAST_EXIT_MS = longPreferencesKey("last_exit_ms")
         val LAST_EXIT_SOURCE = stringPreferencesKey("last_exit_source")
+        val NF_URL = stringPreferencesKey("nf_url")
+        val NF_TOKEN = stringPreferencesKey("nf_token")
+        val NF_ACCOUNT_SLUG = stringPreferencesKey("nf_account_slug")
+        val NF_SUBJECT_ID = longPreferencesKey("nf_subject_id")
+        val NF_DRAFT = booleanPreferencesKey("nf_draft")
     }
 
     val settings: Flow<AppSettings> = context.dataStore.data.map { prefs ->
@@ -56,6 +72,26 @@ class AppPreferences(private val context: Context) {
             roundingMinutes = prefs[Keys.ROUNDING_MINUTES] ?: 0,
             isOnboarded = prefs[Keys.IS_ONBOARDED] ?: false
         )
+    }
+
+    val nanoFaktura: Flow<NanoFakturaConfig> = context.dataStore.data.map { prefs ->
+        NanoFakturaConfig(
+            url = prefs[Keys.NF_URL]?.takeIf { it.isNotBlank() } ?: DEFAULT_NANOFAKTURA_URL,
+            token = prefs[Keys.NF_TOKEN] ?: "",
+            accountSlug = prefs[Keys.NF_ACCOUNT_SLUG] ?: "",
+            subjectId = prefs[Keys.NF_SUBJECT_ID] ?: 0,
+            draft = prefs[Keys.NF_DRAFT] ?: true
+        )
+    }
+
+    suspend fun saveNanoFaktura(config: NanoFakturaConfig) {
+        context.dataStore.edit { prefs ->
+            prefs[Keys.NF_URL] = config.url
+            prefs[Keys.NF_TOKEN] = config.token
+            prefs[Keys.NF_ACCOUNT_SLUG] = config.accountSlug
+            prefs[Keys.NF_SUBJECT_ID] = config.subjectId
+            prefs[Keys.NF_DRAFT] = config.draft
+        }
     }
 
     suspend fun isInsideZone(): Boolean =

@@ -24,12 +24,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.google.android.gms.location.LocationServices
 import cz.hodiny.HodinyApp
 import cz.hodiny.MainActivity
 import cz.hodiny.data.db.HodinyDatabase
 import cz.hodiny.data.preferences.AppSettings
+import cz.hodiny.data.preferences.DEFAULT_NANOFAKTURA_URL
 import cz.hodiny.ui.components.SectionTitle
 import cz.hodiny.ui.components.TimePickerField
 import cz.hodiny.service.DebugLogger
@@ -58,6 +60,9 @@ fun SettingsScreen(padding: PaddingValues) {
     var gpsLng by remember(currentSettings) { mutableStateOf(currentSettings?.workLng ?: 0.0) }
     var detectionMode by remember(currentSettings) { mutableStateOf(currentSettings?.detectionMode ?: "both") }
     var roundingMinutes by remember(currentSettings) { mutableStateOf(currentSettings?.roundingMinutes ?: 0) }
+    val nfConfig by app.preferences.nanoFaktura.collectAsState(initial = null)
+    var nfUrl by remember(nfConfig) { mutableStateOf(nfConfig?.url ?: DEFAULT_NANOFAKTURA_URL) }
+    var nfToken by remember(nfConfig) { mutableStateOf(nfConfig?.token ?: "") }
     var isLocating by remember { mutableStateOf(false) }
     var saved by remember { mutableStateOf(false) }
     var ssidError by remember { mutableStateOf("") }
@@ -194,6 +199,16 @@ fun SettingsScreen(padding: PaddingValues) {
         Spacer(Modifier.height(8.dp))
         OutlinedTextField(value = hourlyRate, onValueChange = { hourlyRate = it }, label = { Text("Hodinová sazba (Kč)") },
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = Modifier.fillMaxWidth())
+
+        SectionTitle("NanoFaktura")
+        OutlinedTextField(value = nfUrl, onValueChange = { nfUrl = it }, label = { Text("Adresa NanoFaktury") },
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri), singleLine = true, modifier = Modifier.fillMaxWidth())
+        Spacer(Modifier.height(8.dp))
+        OutlinedTextField(value = nfToken, onValueChange = { nfToken = it }, label = { Text("API token (nf_…)") },
+            visualTransformation = PasswordVisualTransformation(), singleLine = true, modifier = Modifier.fillMaxWidth())
+        Text("Token vytvoříte v NanoFaktuře v Nastavení → API tokeny. Fakturu pak vystavíte v Historii u daného měsíce.",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 4.dp))
 
         SectionTitle("GPS detekce")
         Button(onClick = { locationLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)) },
@@ -332,6 +347,12 @@ fun SettingsScreen(padding: PaddingValues) {
                     isOnboarded = true
                 )
                 app.preferences.save(settings)
+                nfConfig?.let { nf ->
+                    app.preferences.saveNanoFaktura(nf.copy(
+                        url = nfUrl.trim().ifEmpty { DEFAULT_NANOFAKTURA_URL },
+                        token = nfToken.trim()
+                    ))
+                }
                 GeofenceManager.stop(context)
                 GeofenceManager.start(context, settings)
                 DepartureNotificationWorker.schedule(context, "%02d:%02d".format(notifHour, notifMinute))

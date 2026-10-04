@@ -11,6 +11,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Description
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -23,6 +24,7 @@ import cz.hodiny.HodinyApp
 import cz.hodiny.data.db.AttendanceRecord
 import cz.hodiny.ui.components.AddRecordDialog
 import cz.hodiny.ui.components.EditEntryDialog
+import cz.hodiny.ui.components.InvoiceDialog
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -50,6 +52,8 @@ fun HistoryScreen(padding: PaddingValues) {
     var editRecord by remember { mutableStateOf<AttendanceRecord?>(null) }
     var deleteRecord by remember { mutableStateOf<AttendanceRecord?>(null) }
     var showAddDialog by remember { mutableStateOf(false) }
+    // Měsíc (rok, měsíc, minuty), za který se vystavuje faktura
+    var invoiceMonth by remember { mutableStateOf<Triple<Int, Int, Long>?>(null) }
     val scope = rememberCoroutineScope()
 
     val months = remember { generateMonths() }
@@ -112,6 +116,19 @@ fun HistoryScreen(padding: PaddingValues) {
                                     )
                                 }
                                 Text(formatMinutes(totalMinutes), fontWeight = FontWeight.Bold, color = Color(0xFF1565C0))
+                            }
+                        }
+                    }
+
+                    if (totalMinutes > 0) {
+                        item {
+                            OutlinedButton(
+                                onClick = { invoiceMonth = Triple(y, m, totalMinutes) },
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
+                            ) {
+                                Icon(Icons.Default.Description, null)
+                                Spacer(Modifier.width(8.dp))
+                                Text("Vystavit fakturu v NanoFaktuře")
                             }
                         }
                     }
@@ -188,6 +205,10 @@ fun HistoryScreen(padding: PaddingValues) {
             },
             dismissButton = { TextButton(onClick = { deleteRecord = null }) { Text("Zrušit") } }
         )
+    }
+
+    invoiceMonth?.let { (y, m, minutes) ->
+        InvoiceDialog(year = y, month = m, totalMinutes = minutes, hourlyRate = hourlyRate, onDismiss = { invoiceMonth = null })
     }
 
     if (showAddDialog) {
