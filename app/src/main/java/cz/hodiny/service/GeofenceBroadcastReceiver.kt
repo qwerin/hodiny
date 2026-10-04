@@ -12,10 +12,23 @@ import kotlinx.coroutines.launch
 class GeofenceBroadcastReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
-        val event = GeofencingEvent.fromIntent(intent) ?: return
-        if (event.hasError()) return
+        val event = GeofencingEvent.fromIntent(intent) ?: run {
+            DebugLogger.log("Geofence", "event je null")
+            return
+        }
+        if (event.hasError()) {
+            DebugLogger.log("Geofence", "chyba eventu: ${event.errorCode}")
+            return
+        }
 
         val transition = event.geofenceTransition
+        val transitionName = when (transition) {
+            Geofence.GEOFENCE_TRANSITION_ENTER -> "ENTER"
+            Geofence.GEOFENCE_TRANSITION_EXIT -> "EXIT"
+            else -> "NEZNÁMÝ($transition)"
+        }
+        DebugLogger.log("Geofence", "přechod: $transitionName")
+
         CoroutineScope(Dispatchers.IO).launch {
             when (transition) {
                 Geofence.GEOFENCE_TRANSITION_ENTER -> handleZoneEnter(context, "gps")

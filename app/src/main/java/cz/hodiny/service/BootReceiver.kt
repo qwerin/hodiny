@@ -17,9 +17,11 @@ class BootReceiver : BroadcastReceiver() {
         CoroutineScope(Dispatchers.IO).launch {
             val app = context.applicationContext as HodinyApp
             val settings = app.preferences.settings.first()
-            if (!settings.isOnboarded) return@launch
-
-            // Restartuj geofencing po restartu telefonu
+            if (!settings.isOnboarded) {
+                DebugLogger.log("BootReceiver", "onboarding nedokončen, přeskočeno")
+                return@launch
+            }
+            DebugLogger.log("BootReceiver", "boot dokončen, spouštím monitoring")
             GeofenceManager.start(context, settings)
             DepartureNotificationWorker.schedule(context, settings.notificationTime)
             context.startForegroundService(

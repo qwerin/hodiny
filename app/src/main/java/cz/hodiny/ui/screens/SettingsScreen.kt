@@ -4,7 +4,12 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.location.Location
+import android.net.Uri
+import android.os.Build
+import android.os.PowerManager
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
@@ -15,6 +20,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardType
@@ -57,11 +63,33 @@ fun SettingsScreen(padding: PaddingValues) {
     var ssidError by remember { mutableStateOf("") }
     var dbMessage by remember { mutableStateOf("") }
 
+    // Stav oprávnění
+    var permFineLocation by remember { mutableStateOf(false) }
+    var permBackgroundLocation by remember { mutableStateOf(false) }
+    var permNotifications by remember { mutableStateOf(false) }
+    var batteryOptIgnored by remember { mutableStateOf(false) }
+    var permCheckKey by remember { mutableStateOf(0) }
+
     // Stav detekce
     var refreshKey by remember { mutableStateOf(0) }
     var statusSsid by remember { mutableStateOf("") }
     var statusDistance by remember { mutableStateOf<Float?>(null) }
-    val debugEntries by DebugLogger.entries.collectAsState()
+    var debugEntries by remember { mutableStateOf(emptyList<String>()) }
+    var logRefreshKey by remember { mutableStateOf(0) }
+
+    LaunchedEffect(logRefreshKey) {
+        debugEntries = withContext(Dispatchers.IO) { DebugLogger.readLines() }
+    }
+
+    LaunchedEffect(permCheckKey) {
+        permFineLocation = context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        permBackgroundLocation = context.checkSelfPermission(Manifest.permission.ACCESS_BACKGROUND_LOCATION) == PackageManager.PERMISSION_GRANTED
+        permNotifications = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+        } else true
+        batteryOptIgnored = context.getSystemService(PowerManager::class.java)
+            ?.isIgnoringBatteryOptimizations(context.packageName) ?: true
+    }
 
     LaunchedEffect(currentSettings?.workLat, currentSettings?.workLng, refreshKey) {
         statusSsid = getCurrentSsid(context)
@@ -93,6 +121,19 @@ fun SettingsScreen(padding: PaddingValues) {
                     if (loc != null) { gpsLat = loc.latitude; gpsLng = loc.longitude }
                 } finally { isLocating = false }
             }
+        }
+    }
+
+    val bgLocationLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { permCheckKey++ }
+
+    val allPermsLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { perms ->
+        permCheckKey++
+        if (perms[Manifest.permission.ACCESS_FINE_LOCATION] == true && !permBackgroundLocation) {
+            bgLocationLauncher.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
         }
     }
 
@@ -216,6 +257,48 @@ fun SettingsScreen(padding: PaddingValues) {
             }
         }
 
+        SectionTitle("Oprávnění a nastavení systému")
+        val allPermsOk = permFineLocation && permBackgroundLocation && permNotifications && batteryOptIgnored
+        Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                PermRow("Poloha (GPS)", permFineLocation)
+                PermRow("Poloha na pozadí", permBackgroundLocation)
+                PermRow("Notifikace", permNotifications)
+                PermRow("Bez optimalizace baterie", batteryOptIgnored)
+            }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            if (!allPermsOk) {
+                Button(
+                    onClick = {
+                        val toRequest = buildList {
+                            if (!permFineLocation) {
+                                add(Manifest.permission.ACCESS_FINE_LOCATION)
+                                add(Manifest.permission.ACCESS_COARSE_LOCATION)
+                            }
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !permNotifications) {
+                                add(Manifest.permission.POST_NOTIFICATIONS)
+                            }
+                        }
+                        when {
+                            toRequest.isNotEmpty() -> allPermsLauncher.launch(toRequest.toTypedArray())
+                            !permBackgroundLocation -> bgLocationLauncher.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+                            !batteryOptIgnored -> context.startActivity(
+                                Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                                    data = Uri.parse("package:${context.packageName}")
+                                }
+                            )
+                        }
+                    },
+                    modifier = Modifier.weight(1f)
+                ) { Text("Opravit") }
+            }
+            OutlinedButton(
+                onClick = { permCheckKey++ },
+                modifier = Modifier.weight(1f)
+            ) { Text("Zkontrolovat znovu") }
+        }
+
         SectionTitle("Záloha databáze")
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(
@@ -328,14 +411,17 @@ fun SettingsScreen(padding: PaddingValues) {
             Text("Debug log", style = MaterialTheme.typography.titleMedium)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = {
-                    val text = debugEntries.joinToString("\n")
-                    val shareIntent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
-                        type = "text/plain"
-                        putExtra(android.content.Intent.EXTRA_TEXT, text)
+                    val uri = DebugLogger.getShareUri(context)
+                    if (uri != null) {
+                        val shareIntent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                            type = "text/plain"
+                            putExtra(android.content.Intent.EXTRA_STREAM, uri)
+                            addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }
+                        context.startActivity(android.content.Intent.createChooser(shareIntent, "Sdílet log"))
                     }
-                    context.startActivity(android.content.Intent.createChooser(shareIntent, "Sdílet log"))
                 }) { Text("Sdílet") }
-                OutlinedButton(onClick = { DebugLogger.clear() }) { Text("Smazat") }
+                OutlinedButton(onClick = { DebugLogger.clear(); logRefreshKey++ }) { Text("Smazat") }
             }
         }
 
@@ -353,7 +439,7 @@ fun SettingsScreen(padding: PaddingValues) {
                 shape = MaterialTheme.shapes.small
             ) {
                 Column(Modifier.padding(8.dp)) {
-                    debugEntries.take(100).forEach { entry ->
+                    debugEntries.forEach { entry ->
                         Text(
                             entry,
                             style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
@@ -365,6 +451,22 @@ fun SettingsScreen(padding: PaddingValues) {
         }
 
         Spacer(Modifier.height(16.dp))
+    }
+}
+
+@Composable
+private fun PermRow(label: String, granted: Boolean) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            if (granted) "✓" else "✗",
+            color = if (granted) Color(0xFF2E7D32) else MaterialTheme.colorScheme.error,
+            style = MaterialTheme.typography.bodyMedium
+        )
+        Text(
+            label,
+            style = MaterialTheme.typography.bodyMedium,
+            color = if (granted) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.error
+        )
     }
 }
 

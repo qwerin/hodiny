@@ -13,6 +13,7 @@ import cz.hodiny.HodinyApp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
@@ -33,14 +34,30 @@ class MonitoringService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        DebugLogger.log("MonitoringService", "onCreate – service spuštěn")
         startForegroundSilent()
         connectivityManager = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
 
-        val request = NetworkRequest.Builder()
-            .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
-            .build()
-        connectivityManager.registerNetworkCallback(request, networkCallback)
+        // Inicializuj lastSsid z aktuálního stavu WiFi před registrací callbacku,
+        // aby se po restartu service nespustil falešný enter/exit event.
+        scope.launch {
+            val app = applicationContext as HodinyApp
+            val settings = app.preferences.settings.first()
+            val wifiManager = applicationContext.getSystemService(WIFI_SERVICE) as WifiManager
+            val rawSsid = wifiManager.connectionInfo.ssid?.removeSurrounding("\"") ?: ""
+            val currentSsid = if (rawSsid == "<unknown ssid>") "" else rawSsid
+            lastSsid = if (currentSsid == settings.workSsid) settings.workSsid else ""
+            DebugLogger.log("MonitoringService", "onCreate – init lastSsid='$lastSsid' (currentSsid='$currentSsid')")
+
+            val request = NetworkRequest.Builder()
+                .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
+                .build()
+            connectivityManager.registerNetworkCallback(request, networkCallback)
+
+            while (true) {
+                delay(5 * 60 * 1000L)
+                checkWifi(periodic = true)
+            }
+        }
     }
 
     private fun startForegroundSilent() {
@@ -54,7 +71,7 @@ class MonitoringService : Service() {
         startForeground(999, notif)
     }
 
-    private fun checkWifi() {
+    private fun checkWifi(periodic: Boolean = false) {
         scope.launch {
             val app = applicationContext as HodinyApp
             val settings = app.preferences.settings.first()
@@ -73,14 +90,16 @@ class MonitoringService : Service() {
                 isOnWorkWifi && lastSsid != settings.workSsid -> {
                     DebugLogger.log("MonitoringService", "→ enter")
                     lastSsid = settings.workSsid
+                    app.preferences.setOnWorkWifi(true)
                     handleZoneEnter(applicationContext, "wifi")
                 }
                 !isOnWorkWifi && lastSsid == settings.workSsid -> {
                     DebugLogger.log("MonitoringService", "→ exit")
                     lastSsid = ""
+                    app.preferences.setOnWorkWifi(false)
                     handleZoneExit(applicationContext, "wifi")
                 }
-                else -> DebugLogger.log("MonitoringService", "→ žádná změna")
+                else -> if (!periodic) DebugLogger.log("MonitoringService", "→ žádná změna")
             }
         }
     }

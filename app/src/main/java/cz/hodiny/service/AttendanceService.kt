@@ -9,15 +9,12 @@ import java.time.format.DateTimeFormatter
 // Debounce okno 2 minuty – zabraňuje duplicitním eventům z GPS + WiFi současně
 private const val DEBOUNCE_MS = 2 * 60 * 1000L
 
-private var lastEnterMs = 0L
-private var lastEnterSource = ""
-private var lastExitMs = 0L
-private var lastExitSource = ""
-
 // Pro příchod má prioritu GPS – pokud GPS přijde po WiFi, přepíše ho
 // Pro odchod má prioritu WiFi/SSID – pokud WiFi přijde po GPS, přepíše ho
 suspend fun handleZoneEnter(context: Context, source: String) {
+    val app = context.applicationContext as HodinyApp
     val now = System.currentTimeMillis()
+    val (lastEnterMs, lastEnterSource) = app.preferences.getDebounceEnter()
     val elapsed = now - lastEnterMs
     if (elapsed < DEBOUNCE_MS) {
         if (source == "gps" && lastEnterSource == "wifi") {
@@ -28,11 +25,9 @@ suspend fun handleZoneEnter(context: Context, source: String) {
             return
         }
     }
-    lastEnterMs = now
-    lastEnterSource = source
+    app.preferences.setDebounceEnter(now, source)
     DebugLogger.log(source, "enter zaznamenán")
 
-    val app = context.applicationContext as HodinyApp
     app.preferences.setInsideZone(true)
     val rounding = app.preferences.settings.first().roundingMinutes
     val timestamp = roundedNow(rounding).format(DateTimeFormatter.ISO_LOCAL_DATE_TIME)
@@ -47,7 +42,9 @@ suspend fun handleZoneEnter(context: Context, source: String) {
 }
 
 suspend fun handleZoneExit(context: Context, source: String) {
+    val app = context.applicationContext as HodinyApp
     val now = System.currentTimeMillis()
+    val (lastExitMs, lastExitSource) = app.preferences.getDebounceExit()
     val elapsed = now - lastExitMs
     if (elapsed < DEBOUNCE_MS) {
         if (source == "wifi" && lastExitSource == "gps") {
@@ -58,14 +55,12 @@ suspend fun handleZoneExit(context: Context, source: String) {
             return
         }
     }
-    val app = context.applicationContext as HodinyApp
     if (!app.preferences.isInsideZone()) {
         DebugLogger.log(source, "exit ignorován – nebyl předchozí enter (restart mimo zónu?)")
         return
     }
 
-    lastExitMs = now
-    lastExitSource = source
+    app.preferences.setDebounceExit(now, source)
     DebugLogger.log(source, "exit zaznamenán")
 
     app.preferences.setInsideZone(false)

@@ -1,5 +1,9 @@
 package cz.hodiny.ui.screens
 
+import android.content.Intent
+import android.net.Uri
+import android.os.PowerManager
+import android.provider.Settings
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -14,6 +18,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import cz.hodiny.HodinyApp
 import cz.hodiny.data.db.AttendanceRecord
 import cz.hodiny.ui.components.EditEntryDialog
@@ -32,6 +39,22 @@ fun HomeScreen(padding: PaddingValues) {
     var now by remember { mutableStateOf(LocalDateTime.now()) }
     var showEdit by remember { mutableStateOf(false) }
 
+    // Kontrola optimalizace baterie – re-check po návratu na obrazovku
+    val powerManager = context.getSystemService(PowerManager::class.java)
+    var batteryOptIgnored by remember {
+        mutableStateOf(powerManager?.isIgnoringBatteryOptimizations(context.packageName) ?: true)
+    }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                batteryOptIgnored = powerManager?.isIgnoringBatteryOptimizations(context.packageName) ?: true
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
     // Živý timer
     LaunchedEffect(Unit) {
         while (true) {
@@ -49,6 +72,42 @@ fun HomeScreen(padding: PaddingValues) {
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Spacer(Modifier.height(8.dp))
+
+        // Varování: optimalizace baterie
+        if (!batteryOptIgnored) {
+            Card(
+                modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF3E0))
+            ) {
+                Row(
+                    Modifier.padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text("⚠", style = MaterialTheme.typography.titleMedium)
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            "Optimalizace baterie může blokovat detekci",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color(0xFF5D4037)
+                        )
+                        Text(
+                            "Aplikace nemusí zaznamenat příchod/odchod se zamknutým telefonem.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0xFF795548)
+                        )
+                    }
+                    OutlinedButton(onClick = {
+                        context.startActivity(
+                            Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                                data = Uri.parse("package:${context.packageName}")
+                            }
+                        )
+                    }) { Text("Opravit") }
+                }
+            }
+        }
 
         // Datum
         Text(

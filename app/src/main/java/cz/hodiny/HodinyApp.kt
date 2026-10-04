@@ -5,6 +5,7 @@ import androidx.work.Configuration
 import cz.hodiny.data.db.HodinyDatabase
 import cz.hodiny.data.preferences.AppPreferences
 import cz.hodiny.data.repository.AttendanceRepository
+import cz.hodiny.service.DebugLogger
 import cz.hodiny.service.NotificationHelper
 
 class HodinyApp : Application(), Configuration.Provider {
@@ -15,6 +16,7 @@ class HodinyApp : Application(), Configuration.Provider {
 
     override fun onCreate() {
         super.onCreate()
+        DebugLogger.init(this)
         NotificationHelper.createChannels(this)
     }
 

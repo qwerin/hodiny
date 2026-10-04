@@ -36,16 +36,18 @@ class AttendanceRepository(private val dao: AttendanceDao) {
     }
 
     // Příchod – zapisuje se pouze jednou za den (první vstup)
-    suspend fun recordArrival(source: String, timestamp: String = now()): AttendanceRecord {
+    // Vrací (záznam, wasNew) – wasNew=true jen když byl příchod právě zapsán
+    suspend fun recordArrival(source: String, timestamp: String = now()): Pair<AttendanceRecord, Boolean> {
         val record = getOrCreateToday(source)
-        if (record.arrivalTime == null) {
+        val isNew = record.arrivalTime == null
+        if (isNew) {
             dao.updateArrival(record.id, timestamp, source, now())
             logZoneEvent(record.id, "enter", source, timestamp)
         } else {
             // Duplicitní vstup, jen logujeme
             logZoneEvent(record.id, "enter", source, timestamp)
         }
-        return dao.findByDate(today())!!
+        return Pair(dao.findByDate(today())!!, isNew)
     }
 
     // Odchod – vždy přepisuje (poslední odchod dne)

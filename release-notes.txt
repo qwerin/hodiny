@@ -1,1 +1,2 @@
-Nová verze Hodiny
+lepsi detekce wifi
+

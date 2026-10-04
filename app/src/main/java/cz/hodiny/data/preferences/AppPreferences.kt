@@ -36,6 +36,11 @@ class AppPreferences(private val context: Context) {
         val ROUNDING_MINUTES = intPreferencesKey("rounding_minutes")
         val IS_ONBOARDED = booleanPreferencesKey("is_onboarded")
         val IS_INSIDE_ZONE = booleanPreferencesKey("is_inside_zone")
+        val IS_ON_WORK_WIFI = booleanPreferencesKey("is_on_work_wifi")
+        val LAST_ENTER_MS = longPreferencesKey("last_enter_ms")
+        val LAST_ENTER_SOURCE = stringPreferencesKey("last_enter_source")
+        val LAST_EXIT_MS = longPreferencesKey("last_exit_ms")
+        val LAST_EXIT_SOURCE = stringPreferencesKey("last_exit_source")
     }
 
     val settings: Flow<AppSettings> = context.dataStore.data.map { prefs ->
@@ -58,6 +63,37 @@ class AppPreferences(private val context: Context) {
 
     suspend fun setInsideZone(value: Boolean) {
         context.dataStore.edit { it[Keys.IS_INSIDE_ZONE] = value }
+    }
+
+    suspend fun isOnWorkWifi(): Boolean =
+        context.dataStore.data.map { it[Keys.IS_ON_WORK_WIFI] ?: false }.first()
+
+    suspend fun setOnWorkWifi(value: Boolean) {
+        context.dataStore.edit { it[Keys.IS_ON_WORK_WIFI] = value }
+    }
+
+    suspend fun getDebounceEnter(): Pair<Long, String> =
+        context.dataStore.data.map {
+            Pair(it[Keys.LAST_ENTER_MS] ?: 0L, it[Keys.LAST_ENTER_SOURCE] ?: "")
+        }.first()
+
+    suspend fun setDebounceEnter(ms: Long, source: String) {
+        context.dataStore.edit {
+            it[Keys.LAST_ENTER_MS] = ms
+            it[Keys.LAST_ENTER_SOURCE] = source
+        }
+    }
+
+    suspend fun getDebounceExit(): Pair<Long, String> =
+        context.dataStore.data.map {
+            Pair(it[Keys.LAST_EXIT_MS] ?: 0L, it[Keys.LAST_EXIT_SOURCE] ?: "")
+        }.first()
+
+    suspend fun setDebounceExit(ms: Long, source: String) {
+        context.dataStore.edit {
+            it[Keys.LAST_EXIT_MS] = ms
+            it[Keys.LAST_EXIT_SOURCE] = source
+        }
     }
 
     suspend fun save(settings: AppSettings) {
