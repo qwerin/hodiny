@@ -193,10 +193,15 @@ fun InvoiceDialog(year: Int, month: Int, totalMinutes: Long, hourlyRate: Double,
                                 unitPriceMinor = r!!.movePointRight(2).setScale(0, java.math.RoundingMode.HALF_UP).longValueExact(),
                                 draft = draft
                             )
-                            app.preferences.saveNanoFaktura(cfg.copy(accountSlug = selectedSlug, subjectId = selectedSubjectId, draft = draft))
                             created = invoice
                         } catch (e: Exception) {
                             error = e.message ?: "Vystavení selhalo"
+                            sending = false
+                            return@launch
+                        }
+                        // Faktura už existuje – selhání uložení voleb nesmí vést k opakovanému vystavení
+                        runCatching {
+                            app.preferences.saveNanoFaktura(cfg.copy(accountSlug = selectedSlug, subjectId = selectedSubjectId, draft = draft))
                         }
                         sending = false
                     }

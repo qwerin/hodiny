@@ -31,11 +31,23 @@ object DebugLogger {
         }
     }
 
+    private const val MAX_LOG_BYTES = 512 * 1024L
+
+    // Zapisuje se z více vláken najednou – serializujeme a hlídáme velikost souboru
+    @Synchronized
     fun log(tag: String, msg: String) {
+        val file = logFile ?: return
         val line = "${LocalDate.now().format(dateFmt)} ${LocalTime.now().format(timeFmt)} [$tag] $msg"
-        logFile?.appendText("$line\n")
+        runCatching {
+            if (file.length() > MAX_LOG_BYTES) {
+                val lines = file.readLines()
+                file.writeText(lines.takeLast(lines.size / 2).joinToString("\n", postfix = "\n"))
+            }
+            file.appendText("$line\n")
+        }
     }
 
+    @Synchronized
     fun readLines(): List<String> =
         logFile?.takeIf { it.exists() }?.readLines()?.filter { it.isNotBlank() }?.reversed()
             ?: emptyList()
@@ -46,6 +58,7 @@ object DebugLogger {
         return FileProvider.getUriForFile(context, "${context.packageName}.provider", file)
     }
 
+    @Synchronized
     fun clear() {
         logFile?.writeText("")
     }

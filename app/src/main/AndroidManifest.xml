@@ -41,13 +41,10 @@
             android:exported="false" />
 
         <!-- Geofence broadcast receiver -->
+        <!-- Volá ho jen explicitní PendingIntent z GeofenceManager – nesmí být exportovaný -->
         <receiver
             android:name=".service.GeofenceBroadcastReceiver"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="cz.hodiny.GEOFENCE_EVENT" />
-            </intent-filter>
-        </receiver>
+            android:exported="false" />
 
         <!-- WiFi state change receiver -->
         <receiver

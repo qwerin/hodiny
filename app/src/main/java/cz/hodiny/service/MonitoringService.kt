@@ -13,15 +13,25 @@ import cz.hodiny.HodinyApp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 class MonitoringService : Service() {
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private lateinit var connectivityManager: ConnectivityManager
     private var lastSsid: String? = null
+    private var lastLoggedSsid: String? = null
+    // Callbacky chodí souběžně – kontroly WiFi běží postupně, aby se nepraly o lastSsid
+    private val checkMutex = Mutex()
+    // Registrace callbacku probíhá v korutině, onDestroy na hlavním vlákně
+    private val callbackLock = Any()
+    private var callbackRegistered = false
+    private var destroyed = false
 
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
         override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
@@ -37,21 +47,23 @@ class MonitoringService : Service() {
         startForegroundSilent()
         connectivityManager = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
 
-        // Inicializuj lastSsid z aktuálního stavu WiFi před registrací callbacku,
-        // aby se po restartu service nespustil falešný enter/exit event.
+        // Výchozí stav bereme z uloženého příznaku (ne z aktuální WiFi), aby se po bootu
+        // nebo restartu service zaznamenal příchod/odchod, který mezitím nastal.
         scope.launch {
             val app = applicationContext as HodinyApp
             val settings = app.preferences.settings.first()
-            val wifiManager = applicationContext.getSystemService(WIFI_SERVICE) as WifiManager
-            val rawSsid = wifiManager.connectionInfo.ssid?.removeSurrounding("\"") ?: ""
-            val currentSsid = if (rawSsid == "<unknown ssid>") "" else rawSsid
-            lastSsid = if (currentSsid == settings.workSsid) settings.workSsid else ""
-            DebugLogger.log("MonitoringService", "onCreate – init lastSsid='$lastSsid' (currentSsid='$currentSsid')")
+            lastSsid = if (app.preferences.isOnWorkWifi()) settings.workSsid else ""
+            DebugLogger.log("MonitoringService", "onCreate – init lastSsid='$lastSsid' (z uloženého stavu)")
 
             val request = NetworkRequest.Builder()
                 .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
                 .build()
-            connectivityManager.registerNetworkCallback(request, networkCallback)
+            synchronized(callbackLock) {
+                if (destroyed) return@launch
+                connectivityManager.registerNetworkCallback(request, networkCallback)
+                callbackRegistered = true
+            }
+            checkWifi()
 
             while (true) {
                 delay(5 * 60 * 1000L)
@@ -72,19 +84,23 @@ class MonitoringService : Service() {
     }
 
     private fun checkWifi(periodic: Boolean = false) {
-        scope.launch {
+        scope.launch { checkMutex.withLock {
             val app = applicationContext as HodinyApp
             val settings = app.preferences.settings.first()
             if (settings.workSsid.isBlank() || settings.detectionMode == "gps") {
-                DebugLogger.log("MonitoringService", "WiFi kontrola přeskočena (mode=${settings.detectionMode}, ssid=${settings.workSsid.ifBlank { "prázdné" }})")
-                return@launch
+                if (!periodic) DebugLogger.log("MonitoringService", "WiFi kontrola přeskočena (mode=${settings.detectionMode}, ssid=${settings.workSsid.ifBlank { "prázdné" }})")
+                return@withLock
             }
 
             val wifiManager = applicationContext.getSystemService(WIFI_SERVICE) as WifiManager
             val rawSsid = wifiManager.connectionInfo.ssid?.removeSurrounding("\"") ?: ""
             val currentSsid = if (rawSsid == "<unknown ssid>") "" else rawSsid
             val isOnWorkWifi = currentSsid.isNotBlank() && currentSsid == settings.workSsid
-            DebugLogger.log("MonitoringService", "SSID='$currentSsid' vs '${settings.workSsid}' → shoda=$isOnWorkWifi, lastSsid='$lastSsid'")
+            // onCapabilitiesChanged chodí při každé změně síly signálu – logujeme jen změnu SSID
+            if (currentSsid != lastLoggedSsid) {
+                lastLoggedSsid = currentSsid
+                DebugLogger.log("MonitoringService", "SSID='$currentSsid' vs '${settings.workSsid}' → shoda=$isOnWorkWifi, lastSsid='$lastSsid'")
+            }
 
             when {
                 isOnWorkWifi && lastSsid != settings.workSsid -> {
@@ -99,9 +115,9 @@ class MonitoringService : Service() {
                     app.preferences.setOnWorkWifi(false)
                     handleZoneExit(applicationContext, "wifi")
                 }
-                else -> if (!periodic) DebugLogger.log("MonitoringService", "→ žádná změna")
+                else -> {}
             }
-        }
+        } }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int =
@@ -112,6 +128,13 @@ class MonitoringService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         DebugLogger.log("MonitoringService", "onDestroy – service zastaven!")
-        connectivityManager.unregisterNetworkCallback(networkCallback)
+        scope.cancel()
+        synchronized(callbackLock) {
+            destroyed = true
+            if (callbackRegistered) {
+                runCatching { connectivityManager.unregisterNetworkCallback(networkCallback) }
+                callbackRegistered = false
+            }
+        }
     }
 }

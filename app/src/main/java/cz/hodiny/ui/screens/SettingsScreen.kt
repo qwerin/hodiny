@@ -22,7 +22,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -44,7 +43,7 @@ import kotlinx.coroutines.withContext
 
 @SuppressLint("MissingPermission")
 @Composable
-fun SettingsScreen(padding: PaddingValues) {
+fun SettingsScreen(padding: PaddingValues, onOpenLog: () -> Unit = {}) {
     val context = LocalContext.current
     val app = context.applicationContext as HodinyApp
     val scope = rememberCoroutineScope()
@@ -79,11 +78,10 @@ fun SettingsScreen(padding: PaddingValues) {
     var refreshKey by remember { mutableStateOf(0) }
     var statusSsid by remember { mutableStateOf("") }
     var statusDistance by remember { mutableStateOf<Float?>(null) }
-    var debugEntries by remember { mutableStateOf(emptyList<String>()) }
-    var logRefreshKey by remember { mutableStateOf(0) }
+    var logCount by remember { mutableStateOf(0) }
 
-    LaunchedEffect(logRefreshKey) {
-        debugEntries = withContext(Dispatchers.IO) { DebugLogger.readLines() }
+    LaunchedEffect(refreshKey) {
+        logCount = withContext(Dispatchers.IO) { DebugLogger.readLines().size }
     }
 
     LaunchedEffect(permCheckKey) {
@@ -423,52 +421,15 @@ fun SettingsScreen(padding: PaddingValues) {
             }
         }
 
-        // --- Debug log ---
+        // --- Debug log (samostatná obrazovka) ---
         Row(
             modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Text("Debug log", style = MaterialTheme.typography.titleMedium)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = {
-                    val uri = DebugLogger.getShareUri(context)
-                    if (uri != null) {
-                        val shareIntent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
-                            type = "text/plain"
-                            putExtra(android.content.Intent.EXTRA_STREAM, uri)
-                            addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                        }
-                        context.startActivity(android.content.Intent.createChooser(shareIntent, "Sdílet log"))
-                    }
-                }) { Text("Sdílet") }
-                OutlinedButton(onClick = { DebugLogger.clear(); logRefreshKey++ }) { Text("Smazat") }
+            OutlinedButton(onClick = onOpenLog, modifier = Modifier.weight(1f)) {
+                Text("Debug log ($logCount)")
             }
-        }
-
-        if (debugEntries.isEmpty()) {
-            Text(
-                "Žádné záznamy",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(vertical = 4.dp)
-            )
-        } else {
-            Surface(
-                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant,
-                shape = MaterialTheme.shapes.small
-            ) {
-                Column(Modifier.padding(8.dp)) {
-                    debugEntries.forEach { entry ->
-                        Text(
-                            entry,
-                            style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
-                            modifier = Modifier.padding(vertical = 1.dp)
-                        )
-                    }
-                }
-            }
+            OutlinedButton(onClick = { shareLog(context) }, enabled = logCount > 0) { Text("Sdílet") }
         }
 
         Spacer(Modifier.height(16.dp))

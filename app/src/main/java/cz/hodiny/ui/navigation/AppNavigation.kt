@@ -16,6 +16,7 @@ sealed class Screen(val route: String, val label: String) {
     object Export : Screen("export", "Export")
     object Settings : Screen("settings", "Nastavení")
     object Onboarding : Screen("onboarding", "Nastavení")
+    object DebugLog : Screen("debuglog", "Debug log")
 }
 
 @Composable
@@ -39,7 +40,8 @@ fun AppNavigation() {
                 NavigationBar {
                     bottomItems.forEach { screen ->
                         NavigationBarItem(
-                            selected = currentRoute == screen.route,
+                            selected = currentRoute == screen.route ||
+                                (screen == Screen.Settings && currentRoute == Screen.DebugLog.route),
                             onClick = {
                                 navController.navigate(screen.route) {
                                     popUpTo(navController.graph.startDestinationId) { saveState = true }
@@ -74,7 +76,10 @@ fun AppNavigation() {
             composable(Screen.Home.route) { HomeScreen(padding) }
             composable(Screen.History.route) { HistoryScreen(padding) }
             composable(Screen.Export.route) { ExportScreen(padding) }
-            composable(Screen.Settings.route) { SettingsScreen(padding) }
+            composable(Screen.Settings.route) {
+                SettingsScreen(padding, onOpenLog = { navController.navigate(Screen.DebugLog.route) })
+            }
+            composable(Screen.DebugLog.route) { DebugLogScreen(padding, onBack = { navController.popBackStack() }) }
         }
     }
 }

@@ -3,15 +3,20 @@ package cz.hodiny.service
 import android.content.Context
 import cz.hodiny.HodinyApp
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 
 // Debounce okno 2 minuty – zabraňuje duplicitním eventům z GPS + WiFi současně
 private const val DEBOUNCE_MS = 2 * 60 * 1000L
 
+// Události z GPS a WiFi se zpracovávají postupně – kontrola a zápis debounce musí být atomické
+private val zoneMutex = Mutex()
+
 // Pro příchod má prioritu GPS – pokud GPS přijde po WiFi, přepíše ho
 // Pro odchod má prioritu WiFi/SSID – pokud WiFi přijde po GPS, přepíše ho
-suspend fun handleZoneEnter(context: Context, source: String) {
+suspend fun handleZoneEnter(context: Context, source: String) = zoneMutex.withLock {
     val app = context.applicationContext as HodinyApp
     val now = System.currentTimeMillis()
     val (lastEnterMs, lastEnterSource) = app.preferences.getDebounceEnter()
@@ -22,7 +27,7 @@ suspend fun handleZoneEnter(context: Context, source: String) {
             // Pokračujeme – GPS přepíše WiFi záznam
         } else {
             DebugLogger.log(source, "enter ignorován (debounce, zbývá ${(DEBOUNCE_MS - elapsed) / 1000}s, zdroj=$lastEnterSource)")
-            return
+            return@withLock
         }
     }
     app.preferences.setDebounceEnter(now, source)
@@ -41,7 +46,7 @@ suspend fun handleZoneEnter(context: Context, source: String) {
     }
 }
 
-suspend fun handleZoneExit(context: Context, source: String) {
+suspend fun handleZoneExit(context: Context, source: String) = zoneMutex.withLock {
     val app = context.applicationContext as HodinyApp
     val now = System.currentTimeMillis()
     val (lastExitMs, lastExitSource) = app.preferences.getDebounceExit()
@@ -52,12 +57,12 @@ suspend fun handleZoneExit(context: Context, source: String) {
             // Pokračujeme – WiFi přepíše GPS záznam
         } else {
             DebugLogger.log(source, "exit ignorován (debounce, zbývá ${(DEBOUNCE_MS - elapsed) / 1000}s, zdroj=$lastExitSource)")
-            return
+            return@withLock
         }
     }
     if (!app.preferences.isInsideZone()) {
         DebugLogger.log(source, "exit ignorován – nebyl předchozí enter (restart mimo zónu?)")
-        return
+        return@withLock
     }
 
     app.preferences.setDebounceExit(now, source)
