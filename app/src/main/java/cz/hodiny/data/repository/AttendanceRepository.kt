@@ -2,6 +2,7 @@ package cz.hodiny.data.repository
 
 import cz.hodiny.data.db.AttendanceDao
 import cz.hodiny.data.db.AttendanceRecord
+import cz.hodiny.data.db.ExtraItem
 import cz.hodiny.data.db.ZoneEvent
 import kotlinx.coroutines.flow.Flow
 import java.time.LocalDate
@@ -96,6 +97,14 @@ class AttendanceRepository(private val dao: AttendanceDao) {
     }
 
     suspend fun delete(id: Long) = dao.delete(id)
+
+    // Položky navíc (materiál, nákupy…)
+    fun observeExtraItems(): Flow<List<ExtraItem>> = dao.observeExtraItems()
+    suspend fun findExtraItemsByMonth(year: Int, month: Int) = dao.findExtraItemsByMonth("%04d-%02d".format(year, month))
+    suspend fun saveExtraItem(item: ExtraItem) {
+        if (item.id == 0L) dao.insertExtraItem(item.copy(createdAt = now())) else dao.updateExtraItem(item)
+    }
+    suspend fun deleteExtraItem(id: Long) = dao.deleteExtraItem(id)
 
     private suspend fun findRecordById(id: Long): AttendanceRecord? = dao.findById(id)
 

@@ -33,24 +33,27 @@ class NanoFakturaClient(baseUrl: String, private val token: String) {
             .map { Subject(it.getLong("id"), it.getString("name"), it.optString("registration_no")) }
     }
 
-    // Vystaví fakturu (nebo koncept) s jedinou položkou za odpracované hodiny
-    suspend fun createInvoice(
-        slug: String,
-        subjectId: Long,
-        lineName: String,
-        hours: String,          // decimální řetězec, max 3 desetinná místa
-        unitPriceMinor: Long,   // haléře
-        draft: Boolean
-    ): Invoice {
-        val line = JSONObject()
-            .put("name", lineName)
-            .put("quantity", hours)
-            .put("unit_name", "hod")
-            .put("unit_price", unitPriceMinor)
+    data class Line(
+        val name: String,
+        val quantity: String,       // decimální řetězec, max 3 desetinná místa
+        val unitName: String,
+        val unitPriceMinor: Long    // haléře
+    )
+
+    // Vystaví fakturu (nebo koncept) s danými řádky
+    suspend fun createInvoice(slug: String, subjectId: Long, lines: List<Line>, draft: Boolean): Invoice {
+        val jsonLines = JSONArray()
+        lines.forEach { l ->
+            jsonLines.put(JSONObject()
+                .put("name", l.name)
+                .put("quantity", l.quantity)
+                .put("unit_name", l.unitName)
+                .put("unit_price", l.unitPriceMinor))
+        }
         val body = JSONObject()
             .put("subject_id", subjectId)
             .put("draft", draft)
-            .put("lines", JSONArray().put(line))
+            .put("lines", jsonLines)
         val res = JSONObject(request("POST", "${accountBase(slug)}/invoices", body.toString()))
         return Invoice(
             id = res.getLong("id"),

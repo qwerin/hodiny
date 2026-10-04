@@ -147,6 +147,8 @@ fun SettingsScreen(padding: PaddingValues, onOpenLog: () -> Unit = {}) {
         scope.launch {
             withContext(Dispatchers.IO) {
                 try {
+                    // Přenese WAL do hlavního souboru, jinak by v záloze chyběly nedávné změny
+                    app.database.openHelper.writableDatabase.query("PRAGMA wal_checkpoint(FULL)").use { it.moveToFirst() }
                     val dbFile = context.getDatabasePath("hodiny.db")
                     context.contentResolver.openOutputStream(uri)?.use { out ->
                         dbFile.inputStream().use { it.copyTo(out) }

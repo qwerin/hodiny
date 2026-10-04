@@ -52,4 +52,19 @@ interface AttendanceDao {
 
     @Insert
     suspend fun insertZoneEvent(event: ZoneEvent)
+
+    @Query("SELECT * FROM extra_items ORDER BY COALESCE(date, month || '-00') ASC, id ASC")
+    fun observeExtraItems(): Flow<List<ExtraItem>>
+
+    @Query("SELECT * FROM extra_items WHERE month = :month ORDER BY COALESCE(date, month || '-00') ASC, id ASC")
+    suspend fun findExtraItemsByMonth(month: String): List<ExtraItem>
+
+    @Insert
+    suspend fun insertExtraItem(item: ExtraItem): Long
+
+    @Update
+    suspend fun updateExtraItem(item: ExtraItem)
+
+    @Query("DELETE FROM extra_items WHERE id = :id")
+    suspend fun deleteExtraItem(id: Long)
 }

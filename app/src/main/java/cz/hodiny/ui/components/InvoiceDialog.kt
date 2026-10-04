@@ -15,6 +15,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import cz.hodiny.HodinyApp
+import cz.hodiny.data.db.ExtraItem
 import cz.hodiny.data.preferences.NanoFakturaConfig
 import cz.hodiny.export.NanoFakturaClient
 import kotlinx.coroutines.flow.first
@@ -26,7 +27,14 @@ import java.util.Locale
 // Vystavení faktury za měsíc v NanoFaktuře
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun InvoiceDialog(year: Int, month: Int, totalMinutes: Long, hourlyRate: Double, onDismiss: () -> Unit) {
+fun InvoiceDialog(
+    year: Int,
+    month: Int,
+    totalMinutes: Long,
+    hourlyRate: Double,
+    items: List<ExtraItem>,
+    onDismiss: () -> Unit
+) {
     val context = LocalContext.current
     val app = context.applicationContext as HodinyApp
     val scope = rememberCoroutineScope()
@@ -44,6 +52,8 @@ fun InvoiceDialog(year: Int, month: Int, totalMinutes: Long, hourlyRate: Double,
     var hours by remember { mutableStateOf("%.2f".format(Locale.US, totalMinutes / 60.0)) }
     var rate by remember { mutableStateOf(if (hourlyRate > 0) "%.2f".format(Locale.US, hourlyRate).removeSuffix(".00") else "") }
     var draft by remember { mutableStateOf(true) }
+    // Položky navíc, které jdou na fakturu (výchozí všechny)
+    var includedItems by remember { mutableStateOf(items.map { it.id }.toSet()) }
 
     var loading by remember { mutableStateOf(true) }
     var sending by remember { mutableStateOf(false) }
@@ -157,7 +167,21 @@ fun InvoiceDialog(year: Int, month: Int, totalMinutes: Long, hourlyRate: Double,
                     OutlinedTextField(value = rate, onValueChange = { rate = it }, label = { Text("Kč/hod") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = Modifier.weight(1f))
                 }
-                val total = (hours.replace(',', '.').toDoubleOrNull() ?: 0.0) * (rate.replace(',', '.').toDoubleOrNull() ?: 0.0)
+                if (items.isNotEmpty()) {
+                    Text("Položky navíc", style = MaterialTheme.typography.labelLarge)
+                    items.forEach { extra ->
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(
+                                checked = extra.id in includedItems,
+                                onCheckedChange = { includedItems = if (it) includedItems + extra.id else includedItems - extra.id }
+                            )
+                            Text(extra.description, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                            Text("${"%.0f".format(extra.amount)} Kč", style = MaterialTheme.typography.bodyMedium)
+                        }
+                    }
+                }
+                val itemsTotal = items.filter { it.id in includedItems }.sumOf { it.amount }
+                val total = (hours.replace(',', '.').toDoubleOrNull() ?: 0.0) * (rate.replace(',', '.').toDoubleOrNull() ?: 0.0) + itemsTotal
                 Text("Celkem bez DPH: ${"%.2f".format(total)} Kč", style = MaterialTheme.typography.bodyMedium)
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -173,13 +197,33 @@ fun InvoiceDialog(year: Int, month: Int, totalMinutes: Long, hourlyRate: Double,
             TextButton(
                 enabled = !loading && !sending && client != null && selectedSubjectId > 0,
                 onClick = {
-                    val h = hours.replace(',', '.').toBigDecimalOrNull()
-                    val r = rate.replace(',', '.').toBigDecimalOrNull()
+                    // Prázdné / nulové hodiny = faktura jen z položek navíc
+                    val h = hours.replace(',', '.').trim().ifEmpty { "0" }.toBigDecimalOrNull()
+                    val r = rate.replace(',', '.').trim().ifEmpty { "0" }.toBigDecimalOrNull()
+                    val withHours = h != null && h.signum() > 0
                     when {
-                        lineName.isBlank() -> { error = "Vyplňte text položky"; return@TextButton }
-                        h == null || h.signum() <= 0 -> { error = "Neplatný počet hodin"; return@TextButton }
-                        r == null || r.signum() <= 0 -> { error = "Neplatná hodinová sazba"; return@TextButton }
+                        h == null || h.signum() < 0 -> { error = "Neplatný počet hodin"; return@TextButton }
+                        withHours && lineName.isBlank() -> { error = "Vyplňte text položky"; return@TextButton }
+                        withHours && (r == null || r.signum() <= 0) -> { error = "Neplatná hodinová sazba"; return@TextButton }
                     }
+                    val lines = buildList {
+                        if (withHours) add(NanoFakturaClient.Line(
+                            name = lineName.trim(),
+                            quantity = h!!.setScale(3, java.math.RoundingMode.HALF_UP).stripTrailingZeros().toPlainString(),
+                            unitName = "hod",
+                            unitPriceMinor = r!!.movePointRight(2).setScale(0, java.math.RoundingMode.HALF_UP).longValueExact()
+                        ))
+                        items.filter { it.id in includedItems }.forEach { extra ->
+                            val day = extra.date?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+                            add(NanoFakturaClient.Line(
+                                name = if (day != null) "${extra.description} (${day.dayOfMonth}. ${day.monthValue}. ${day.year})" else extra.description,
+                                quantity = "1",
+                                unitName = "",
+                                unitPriceMinor = Math.round(extra.amount * 100)
+                            ))
+                        }
+                    }
+                    if (lines.isEmpty()) { error = "Faktura nemá žádnou položku"; return@TextButton }
                     val cfg = config ?: return@TextButton
                     sending = true
                     error = ""
@@ -188,9 +232,7 @@ fun InvoiceDialog(year: Int, month: Int, totalMinutes: Long, hourlyRate: Double,
                             val invoice = client!!.createInvoice(
                                 slug = selectedSlug,
                                 subjectId = selectedSubjectId,
-                                lineName = lineName.trim(),
-                                hours = h!!.setScale(3, java.math.RoundingMode.HALF_UP).stripTrailingZeros().toPlainString(),
-                                unitPriceMinor = r!!.movePointRight(2).setScale(0, java.math.RoundingMode.HALF_UP).longValueExact(),
+                                lines = lines,
                                 draft = draft
                             )
                             created = invoice

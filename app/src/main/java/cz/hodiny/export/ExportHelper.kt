@@ -9,6 +9,7 @@ import android.graphics.pdf.PdfDocument
 import androidx.core.content.FileProvider
 import cz.hodiny.HodinyApp
 import cz.hodiny.data.db.AttendanceRecord
+import cz.hodiny.data.db.ExtraItem
 import cz.hodiny.data.preferences.AppSettings
 import java.io.File
 import java.io.FileOutputStream
@@ -23,7 +24,8 @@ object ExportHelper {
     suspend fun exportPDF(context: Context, year: Int, month: Int, settings: AppSettings) {
         val app = context.applicationContext as HodinyApp
         val records = app.repository.findByMonth(year, month)
-        if (records.isEmpty()) throw Exception("Za vybraný měsíc nejsou žádné záznamy.")
+        val items = app.repository.findExtraItemsByMonth(year, month)
+        if (records.isEmpty() && items.isEmpty()) throw Exception("Za vybraný měsíc nejsou žádné záznamy.")
 
         val monthLabel = monthLabel(year, month)
         val totalMinutes = records.sumOf { durationMinutes(it) }
@@ -34,7 +36,7 @@ object ExportHelper {
         val page = doc.startPage(pageInfo)
         val canvas = page.canvas
 
-        drawPDF(canvas, records, monthLabel, settings, totalHours)
+        drawPDF(canvas, records, items, monthLabel, settings, totalHours)
         doc.finishPage(page)
 
         val file = File(context.cacheDir, "dochazka_${year}_${"%02d".format(month)}.pdf")
@@ -47,7 +49,8 @@ object ExportHelper {
     suspend fun exportCSV(context: Context, year: Int, month: Int, settings: AppSettings) {
         val app = context.applicationContext as HodinyApp
         val records = app.repository.findByMonth(year, month)
-        if (records.isEmpty()) throw Exception("Za vybraný měsíc nejsou žádné záznamy.")
+        val items = app.repository.findExtraItemsByMonth(year, month)
+        if (records.isEmpty() && items.isEmpty()) throw Exception("Za vybraný měsíc nejsou žádné záznamy.")
 
         val sb = StringBuilder()
         sb.appendLine("Datum;Příchod;Odchod;Délka (min);Délka;Poznámka")
@@ -56,11 +59,19 @@ object ExportHelper {
             sb.appendLine("${r.date};${formatTime(r.arrivalTime)};${formatTime(r.departureTime)};$dur;${formatMinutes(dur)};${r.note ?: ""}")
         }
         val total = records.sumOf { durationMinutes(it) }
+        val itemsTotal = items.sumOf { it.amount }
+        if (items.isNotEmpty()) {
+            sb.appendLine()
+            sb.appendLine("Položky navíc;Datum;Částka (Kč)")
+            items.forEach { sb.appendLine("${it.description.replace(';', ',')};${it.date ?: "celý měsíc"};${"%.2f".format(it.amount)}") }
+            sb.appendLine("Položky celkem;;${"%.2f".format(itemsTotal)}")
+        }
         sb.appendLine()
         sb.appendLine("Celkem hodin;${"%.2f".format(total / 60.0)}")
-        if (settings.hourlyRate > 0) {
-            sb.appendLine("Sazba;${settings.hourlyRate} Kč/hod")
-            sb.appendLine("K fakturaci;${"%.2f".format(total / 60.0 * settings.hourlyRate)} Kč")
+        if (settings.hourlyRate > 0) sb.appendLine("Sazba;${settings.hourlyRate} Kč/hod")
+        if (settings.hourlyRate > 0 || items.isNotEmpty()) {
+            val hoursAmount = if (settings.hourlyRate > 0) total / 60.0 * settings.hourlyRate else 0.0
+            sb.appendLine("K fakturaci;${"%.2f".format(hoursAmount + itemsTotal)} Kč")
         }
 
         val file = File(context.cacheDir, "dochazka_${year}_${"%02d".format(month)}.csv")
@@ -68,7 +79,7 @@ object ExportHelper {
         shareFile(context, file, "text/csv")
     }
 
-    private fun drawPDF(canvas: Canvas, records: List<AttendanceRecord>, monthLabel: String, settings: AppSettings, totalHours: Double) {
+    private fun drawPDF(canvas: Canvas, records: List<AttendanceRecord>, items: List<ExtraItem>, monthLabel: String, settings: AppSettings, totalHours: Double) {
         val titlePaint = Paint().apply { color = Color.rgb(26, 26, 46); textSize = 22f; isFakeBoldText = true }
         val subtitlePaint = Paint().apply { color = Color.GRAY; textSize = 13f }
         val headerPaint = Paint().apply { color = Color.WHITE; textSize = 12f; isFakeBoldText = true }
@@ -103,8 +114,28 @@ object ExportHelper {
             y += 20f
         }
 
+        // Položky navíc
+        val itemsTotal = items.sumOf { it.amount }
+        if (items.isNotEmpty()) {
+            y += 16f
+            canvas.drawRect(40f, y, 555f, y + 24f, bgPaint)
+            canvas.drawText("Položka navíc", 45f, y + 16f, headerPaint)
+            canvas.drawText("Datum", 380f, y + 16f, headerPaint)
+            canvas.drawText("Částka", 470f, y + 16f, headerPaint)
+            y += 24f
+            items.forEachIndexed { i, item ->
+                if (i % 2 == 1) canvas.drawRect(40f, y, 555f, y + 20f, altPaint)
+                canvas.drawText(item.description, 45f, y + 14f, bodyPaint)
+                canvas.drawText(item.date?.let { formatDateShort(it) } ?: "celý měsíc", 380f, y + 14f, bodyPaint)
+                canvas.drawText("${"%.2f".format(item.amount)} Kč", 470f, y + 14f, bodyPaint)
+                y += 20f
+            }
+        }
+
+        val showAmount = settings.hourlyRate > 0 || items.isNotEmpty()
+        val summaryLines = 2 + (if (settings.hourlyRate > 0) 1 else 0) + (if (items.isNotEmpty()) 1 else 0) + (if (showAmount) 1 else 0)
         y += 16f
-        canvas.drawRect(40f, y, 555f, y + (if (settings.hourlyRate > 0) 70f else 50f), summaryPaint)
+        canvas.drawRect(40f, y, 555f, y + 18f + summaryLines * 16f, summaryPaint)
         y += 18f
         canvas.drawText("Počet dní: ${records.size}", 50f, y, bodyPaint)
         y += 16f
@@ -112,8 +143,15 @@ object ExportHelper {
         if (settings.hourlyRate > 0) {
             y += 16f
             canvas.drawText("Sazba: ${settings.hourlyRate} Kč/hod", 50f, y, bodyPaint)
+        }
+        if (items.isNotEmpty()) {
             y += 16f
-            val amount = "%.2f".format(totalHours * settings.hourlyRate)
+            canvas.drawText("Položky navíc: ${"%.2f".format(itemsTotal)} Kč", 50f, y, bodyPaint)
+        }
+        if (showAmount) {
+            y += 16f
+            val hoursAmount = if (settings.hourlyRate > 0) totalHours * settings.hourlyRate else 0.0
+            val amount = "%.2f".format(hoursAmount + itemsTotal)
             canvas.drawText("K fakturaci: $amount Kč", 50f, y, Paint().apply { color = Color.rgb(21, 101, 192); textSize = 13f; isFakeBoldText = true })
         }
     }

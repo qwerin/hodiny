@@ -12,6 +12,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.PostAdd
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -22,8 +23,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import cz.hodiny.HodinyApp
 import cz.hodiny.data.db.AttendanceRecord
+import cz.hodiny.data.db.ExtraItem
 import cz.hodiny.ui.components.AddRecordDialog
 import cz.hodiny.ui.components.EditEntryDialog
+import cz.hodiny.ui.components.ExtraItemDialog
 import cz.hodiny.ui.components.InvoiceDialog
 import kotlinx.coroutines.launch
 import java.time.LocalDate
@@ -47,6 +50,7 @@ fun HistoryScreen(padding: PaddingValues) {
     val context = LocalContext.current
     val app = context.applicationContext as HodinyApp
     val allRecords by app.repository.observeAll().collectAsState(initial = emptyList())
+    val allItems by app.repository.observeExtraItems().collectAsState(initial = emptyList())
     val settings by app.preferences.settings.collectAsState(initial = null)
     val hourlyRate = settings?.hourlyRate ?: 0.0
     var editRecord by remember { mutableStateOf<AttendanceRecord?>(null) }
@@ -54,6 +58,9 @@ fun HistoryScreen(padding: PaddingValues) {
     var showAddDialog by remember { mutableStateOf(false) }
     // Měsíc (rok, měsíc, minuty), za který se vystavuje faktura
     var invoiceMonth by remember { mutableStateOf<Triple<Int, Int, Long>?>(null) }
+    // Položka navíc: (rok, měsíc, položka – null = nová)
+    var itemDialog by remember { mutableStateOf<Triple<Int, Int, ExtraItem?>?>(null) }
+    var deleteItem by remember { mutableStateOf<ExtraItem?>(null) }
     val scope = rememberCoroutineScope()
 
     val months = remember { generateMonths() }
@@ -96,7 +103,9 @@ fun HistoryScreen(padding: PaddingValues) {
                 val prefix = "%04d-%02d".format(y, m)
                 val monthRecords = allRecords.filter { it.date.startsWith(prefix) }
                 val totalMinutes = monthRecords.sumOf { durationMinutes(it) }
-                val totalAmount = if (hourlyRate > 0) totalMinutes / 60.0 * hourlyRate else 0.0
+                val monthItems = allItems.filter { it.month == prefix }
+                val itemsAmount = monthItems.sumOf { it.amount }
+                val totalAmount = (if (hourlyRate > 0) totalMinutes / 60.0 * hourlyRate else 0.0) + itemsAmount
 
                 LazyColumn(modifier = Modifier.fillMaxSize()) {
                     // Součet měsíce
@@ -108,7 +117,7 @@ fun HistoryScreen(padding: PaddingValues) {
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text("${monthRecords.size} dní", color = Color(0xFF1565C0))
-                                if (hourlyRate > 0) {
+                                if (hourlyRate > 0 || monthItems.isNotEmpty()) {
                                     Text(
                                         "${"%.0f".format(totalAmount)} Kč",
                                         fontWeight = FontWeight.Bold,
@@ -120,17 +129,61 @@ fun HistoryScreen(padding: PaddingValues) {
                         }
                     }
 
-                    if (totalMinutes > 0) {
-                        item {
+                    item {
+                        Row(
+                            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
                             OutlinedButton(
-                                onClick = { invoiceMonth = Triple(y, m, totalMinutes) },
-                                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
+                                onClick = { itemDialog = Triple(y, m, null) },
+                                modifier = Modifier.weight(1f)
                             ) {
-                                Icon(Icons.Default.Description, null)
-                                Spacer(Modifier.width(8.dp))
-                                Text("Vystavit fakturu v NanoFaktuře")
+                                Icon(Icons.Default.PostAdd, null)
+                                Spacer(Modifier.width(6.dp))
+                                Text("Položka")
+                            }
+                            if (totalMinutes > 0 || monthItems.isNotEmpty()) {
+                                OutlinedButton(
+                                    onClick = { invoiceMonth = Triple(y, m, totalMinutes) },
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Icon(Icons.Default.Description, null)
+                                    Spacer(Modifier.width(6.dp))
+                                    Text("Faktura")
+                                }
                             }
                         }
+                    }
+
+                    // Položky navíc (materiál, nákupy…)
+                    if (monthItems.isNotEmpty()) {
+                        item {
+                            Text(
+                                "Položky navíc",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = Color(0xFF666666),
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                            )
+                        }
+                        items(monthItems, key = { "item-${it.id}" }) { extra ->
+                            ListItem(
+                                modifier = Modifier.clickable { itemDialog = Triple(y, m, extra) },
+                                headlineContent = { Text(extra.description) },
+                                supportingContent = {
+                                    Text(extra.date?.let { formatDateShort(it) } ?: "celý měsíc", color = Color(0xFF666666))
+                                },
+                                trailingContent = {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text("${"%.0f".format(extra.amount)} Kč", color = Color(0xFF388E3C), fontWeight = FontWeight.Medium)
+                                        IconButton(onClick = { deleteItem = extra }) {
+                                            Icon(Icons.Default.Delete, null, tint = Color(0xFFBDBDBD))
+                                        }
+                                    }
+                                }
+                            )
+                            HorizontalDivider()
+                        }
+                        item { Spacer(Modifier.height(8.dp)) }
                     }
 
                     if (monthRecords.isEmpty()) {
@@ -144,11 +197,18 @@ fun HistoryScreen(padding: PaddingValues) {
                     items(monthRecords.sortedByDescending { it.date }, key = { it.id }) { record ->
                         val dayMinutes = durationMinutes(record)
                         val dayAmount = if (hourlyRate > 0 && dayMinutes > 0) dayMinutes / 60.0 * hourlyRate else 0.0
+                        val dayItems = monthItems.filter { it.date == record.date }
                         ListItem(
                             modifier = Modifier.clickable { editRecord = record },
                             headlineContent = { Text(formatDateShort(record.date)) },
                             supportingContent = {
-                                if (record.entrySource == "manual") Text("ručně", color = Color(0xFFFF9800))
+                                Column {
+                                    if (record.entrySource == "manual") Text("ručně", color = Color(0xFFFF9800))
+                                    dayItems.forEach {
+                                        Text("+ ${it.description} (${"%.0f".format(it.amount)} Kč)", color = Color(0xFF388E3C),
+                                            style = MaterialTheme.typography.bodySmall)
+                                    }
+                                }
                             },
                             trailingContent = {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -208,7 +268,31 @@ fun HistoryScreen(padding: PaddingValues) {
     }
 
     invoiceMonth?.let { (y, m, minutes) ->
-        InvoiceDialog(year = y, month = m, totalMinutes = minutes, hourlyRate = hourlyRate, onDismiss = { invoiceMonth = null })
+        val monthKey = "%04d-%02d".format(y, m)
+        InvoiceDialog(
+            year = y, month = m, totalMinutes = minutes, hourlyRate = hourlyRate,
+            items = allItems.filter { it.month == monthKey },
+            onDismiss = { invoiceMonth = null }
+        )
+    }
+
+    itemDialog?.let { (y, m, extra) ->
+        ExtraItemDialog(year = y, month = m, item = extra, onDismiss = { itemDialog = null })
+    }
+
+    deleteItem?.let { extra ->
+        AlertDialog(
+            onDismissRequest = { deleteItem = null },
+            title = { Text("Smazat položku") },
+            text = { Text("Opravdu smazat „${extra.description}“ (${"%.0f".format(extra.amount)} Kč)?") },
+            confirmButton = {
+                TextButton(onClick = {
+                    scope.launch { app.repository.deleteExtraItem(extra.id) }
+                    deleteItem = null
+                }) { Text("Smazat", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = { TextButton(onClick = { deleteItem = null }) { Text("Zrušit") } }
+        )
     }
 
     if (showAddDialog) {

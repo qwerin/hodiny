@@ -27,3 +27,14 @@ data class ZoneEvent(
     @ColumnInfo(name = "timestamp") val timestamp: String,
     @ColumnInfo(name = "raw_data") val rawData: String? = null
 )
+
+// Položka k fakturaci navíc (materiál, nákup…) – k celému měsíci nebo ke konkrétnímu dni
+@Entity(tableName = "extra_items", indices = [Index(value = ["month"])])
+data class ExtraItem(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    @ColumnInfo(name = "month") val month: String,                // "YYYY-MM"
+    @ColumnInfo(name = "date") val date: String? = null,          // "YYYY-MM-DD", null = celý měsíc
+    @ColumnInfo(name = "description") val description: String,
+    @ColumnInfo(name = "amount") val amount: Double,              // Kč
+    @ColumnInfo(name = "created_at") val createdAt: String = ""
+)
